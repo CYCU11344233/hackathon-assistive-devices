@@ -670,6 +670,7 @@ function loanDetail(m) {
           <p class="small">若具特殊需求，得申請續借 1 次。請先洽輔具中心辦理，辦妥後再更新到期日。</p>
           <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">${ICON.phone} 洽輔具中心</button></div>
           <label>新的到期日（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
+          <p class="small">此日期僅供本 App 提醒使用，實際到期日以輔具中心核定為準。</p>
           <button class="btn" type="submit">已辦妥續借</button></form>`
       : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
     body += `<section class="card actions-card"><h3>辦理</h3>
@@ -925,7 +926,8 @@ const actions = {
     const loan = state.loans.find((l) => l.id === el.dataset.loan);
     const f = await formDialog('已完成借用（已取貨）', `
       <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}" required></label>
-      <label>到期日（依借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}" required></label>`, '確認', (form) => {
+      <label>到期日（依借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}" required></label>
+      <p class="small">此日期僅供本 App 提醒使用，實際到期日以借用單為準。</p>`, '確認', (form) => {
       // 改取貨日時，歸還期限跟著算（除非使用者自己改過）
       let touched = false;
       form.dueDate.addEventListener('input', () => { touched = true; });
