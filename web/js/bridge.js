@@ -84,7 +84,8 @@ export function phoneCall(number) {
  */
 export function launchMap(lat, lng, label) {
   if (isInApp()) {
-    post('launch_map', `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(label || '')})`);
+    // 用中心名稱搜尋（座標只當附近範圍），地圖 App 會找到中心本身的位置
+    post('launch_map', `geo:${lat},${lng}?q=${encodeURIComponent(label || `${lat},${lng}`)}`);
   } else {
     window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`, '_blank', 'noopener');
   }

@@ -4,8 +4,10 @@ import {
 } from './rules.js';
 import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS } from './data.js';
 import * as bridge from './bridge.js';
+import { HOLIDAYS } from './holidays.js';
 
-const HOURS = Object.fromEntries(CENTERS.map((c) => [c.id, parseHours(c.hoursText)]));
+// 開放時間加上國定假日休館（人事行政總處辦公日曆表）
+const HOURS = Object.fromEntries(CENTERS.map((c) => [c.id, { ...parseHours(c.hoursText), closed: HOLIDAYS }]));
 const centerById = (id) => CENTERS.find((c) => c.id === id);
 
 // ---------- 狀態與儲存（只存在這支手機） ----------
@@ -66,25 +68,22 @@ function km(a, b) {
 }
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-// 可選的預約時間：前後 3 天內、該中心開館時段內，每 30 分鐘一格（24 小時制）
+// 可選的預約時段：往前 3 天到往後 14 天、該中心開館時段內，每 30 分鐘一格（24 小時制）。
+// 晚上也能在官網預約，只是預約的時段必須在開館時間內。
 const SLOT_MIN = 30;
 function reservationSlots(hours, t) {
   const out = [];
-  for (let d = -3; d <= 3; d++) {
+  for (let d = -3; d <= 14; d++) {
     for (const iv of intervalsOnDate(hours, addDays(startOfDay(t), d))) {
       for (let x = iv.start.getTime(); x < iv.end.getTime(); x += SLOT_MIN * 60000) out.push(new Date(x));
     }
   }
   return out;
 }
-// 預設選離現在最近的時段，一樣近時選已經過去的那個
+// 預設選下一個開館時段（現在正在開館就選目前這一格）；沒有的話選最後一格
 function nearestSlot(slots, t) {
-  let best = null;
-  for (const s of slots) {
-    const gap = Math.abs(s - t) + (s > t ? 1 : 0);
-    if (!best || gap < best.gap) best = { s, gap };
-  }
-  return best?.s ?? null;
+  const cur = slots.find((s) => s.getTime() + SLOT_MIN * 60000 > t);
+  return cur ?? slots[slots.length - 1] ?? null;
 }
 
 // ---------- 狀態文字 ----------
@@ -143,9 +142,29 @@ function sortedCenters() {
 const shortName = (c) => c.name.replace('臺北市', '');
 
 // 地址、開放時間、入口提示收在「地址與時間」裡，需要再點開
+// 「周二至周六 9:00-12:00 13:30-17:00」→「週二至週六 09:00–12:00、13:30–17:00」
+function hoursLabel(c) {
+  const h = HOURS[c.id];
+  const days = c.hoursText.split(/\d/)[0].trim().replace(/周/g, '週');
+  const t = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+  return `${days} ${h.ranges.map(([x, y]) => `${t(x)}–${t(y)}`).join('、')}`;
+}
+
 function centerInfo(c) {
   return `<details class="more"><summary>地址與時間</summary>
-    <p class="small">${esc(c.address)}<br>${esc(c.entrance)}<br>${esc(c.hoursText.replace(/周/g, '週'))}（12:00–13:30 午休）</p></details>`;
+    <dl class="info">
+      <dt>地址</dt><dd>${esc(c.address)}</dd>
+      <dt>怎麼找</dt><dd>${esc(c.entrance)}</dd>
+      <dt>開放</dt><dd>${esc(hoursLabel(c))}</dd>
+      <dt>休館</dt><dd>國定假日</dd>
+      <dt>電話</dt><dd>${esc(c.phoneText)}</dd>
+    </dl></details>`;
+}
+
+// 開館中才顯示「現在預約要在什麼時候前取貨」；休館中上一行已經寫了下次開門時間，
+// 而且晚上也能在官網預約開館時段，不需要再多一行
+function bookLine(c, p, pt) {
+  return openStatus(HOURS[c.id], now()).open ? `<p class="line tone-${pt.tone}">現在預約：${pt.text}</p>` : '';
 }
 
 function centerCard({ c, p, dist }, showPickup = true) {
@@ -153,7 +172,7 @@ function centerCard({ c, p, dist }, showPickup = true) {
   return `<article class="card">
     <div class="card-head"><h3>${esc(shortName(c))}</h3>${dist != null ? `<span class="dist">${dist.toFixed(1)} 公里</span>` : ''}</div>
     <p class="line">${openLine(c)}</p>
-    ${showPickup ? `<p class="line tone-${pt.tone}">現在預約：${pt.text}</p>` : ''}
+    ${showPickup ? bookLine(c, p, pt) : ''}
     ${centerActions(c)}
     ${centerInfo(c)}
   </article>`;
@@ -168,6 +187,16 @@ function checklist(loan, list) {
 
 function locateButton() {
   return myLoc ? '' : '<button class="btn ghost" data-act="locate">📍 依距離排序</button>';
+}
+
+// 去官網預約後回來（3 天內），在最上面問一次，按中心直接進到填好的「記下預約」
+function pendingBanner() {
+  const p = state.pending;
+  if (!p || now() - new Date(p.at) > 3 * 86400000) return '';
+  return `<div class="card pending"><h3>在官網預約「${esc(p.item)}」成功了嗎？</h3>
+    <p class="small">選預約的中心，馬上記下來</p>
+    <div class="btn-row">${CENTERS.map((c) => `<a class="btn primary" href="#/loan/new?item=${encodeURIComponent(p.item)}&center=${c.id}">${esc(shortName(c).replace('輔具中心', ''))}</a>`).join('')}</div>
+    <button class="btn ghost" data-act="dismissPending">沒有預約</button></div>`;
 }
 
 // ---------- 頁面 ----------
@@ -248,7 +277,8 @@ function borrow(_m, q) {
       html: `<ol class="steps">
         <li><strong>選中心</strong>（看下面）</li>
         <li><strong>到官網預約</strong>
-          <div class="btn-row"><button class="btn primary" data-act="link" data-url="${LINKS.reserve}">去官網預約</button></div></li>
+          <div class="btn-row"><button class="btn primary" data-act="link" data-url="${LINKS.reserve}" data-pending="${esc(item)}">去官網預約</button></div>
+          <p class="small">官網顯示沒有庫存？換其他中心查，或打電話問中心什麼時候會有</p></li>
         <li><strong>回來記下預約</strong>
           <div class="btn-row"><a class="btn" href="#/loan/new?item=${encodeURIComponent(item)}">記下預約</a></div></li>
       </ol>
@@ -268,7 +298,7 @@ function borrow(_m, q) {
 function centers() {
   return {
     title: '輔具中心',
-    html: `<p class="small">國定假日可能休館，出發前先打電話。</p>
+    html: `<p class="small">已排除國定假日；臨時休館請以中心公告為準</p>
     ${locateButton()}
     ${sortedCenters().map((x) => centerCard(x)).join('')}`,
   };
@@ -277,6 +307,7 @@ function centers() {
 function newLoan(_m, q) {
   const item = q.get('item') || '';
   const isKnown = ITEMS.includes(item);
+  const centerId = CENTERS.some((c) => c.id === q.get('center')) ? q.get('center') : CENTERS[0].id;
   return {
     title: '記下預約',
     html: `<form id="loan-form" class="form">
@@ -286,7 +317,7 @@ function newLoan(_m, q) {
       </label>
       <label class="other-item" ${item && !isKnown ? '' : 'hidden'}>輔具名稱<input name="itemOther" value="${item && !isKnown && item !== '其他輔具' ? esc(item) : ''}" placeholder="例如：洗澡便盆椅"></label>
       <fieldset><legend>中心</legend>${CENTERS.map((c, i) => `
-        <label class="radio"><input type="radio" name="center" value="${c.id}" ${i === 0 ? 'checked' : ''}> ${esc(shortName(c))}</label>`).join('')}
+        <label class="radio"><input type="radio" name="center" value="${c.id}" ${c.id === centerId ? 'checked' : ''}> ${esc(shortName(c))}</label>`).join('')}
       </fieldset>
       <div class="field-row">
         <label>預約日期<select name="resDate"></select></label>
@@ -348,6 +379,7 @@ function newLoan(_m, q) {
           checks: { pickup: [], return: [] },
         };
         state.loans.push(loan);
+        delete state.pending; // 已經記下，不用再問
         save();
         replaceTo(`#/loan/${loan.id}`);
       });
@@ -399,12 +431,12 @@ function loanDetail(m) {
     }
     body += `<div class="card"><h3>歸還前準備</h3>${checklist(loan, 'return')}</div>`;
     body += s.canRenew
-      ? `<form class="card form" id="renew-form"><h3>續借（限 1 次）</h3>
-          <p class="small">先打電話辦好，再改日期</p>
-          <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">📞 撥號</button></div>
-          <label>新的歸還期限<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
-          <button class="btn" type="submit">已續借</button></form>`
-      : '<div class="alert info">已續借過，到期請歸還。</div>';
+      ? `<form class="card form" id="renew-form"><h3>續借</h3>
+          <p class="small">若具特殊需求，得申請續借 1 次。請先洽輔具中心辦理，辦妥後再更新歸還期限。</p>
+          <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">📞 洽輔具中心</button></div>
+          <label>新的歸還期限（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
+          <button class="btn" type="submit">已辦妥續借</button></form>`
+      : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
     body += `<details class="confirm"><summary class="btn primary big">✅ 已歸還</summary>
         <form class="card form" id="return-form">
           <label>歸還日<input type="date" name="returnedAt" value="${toDateInput(now())}"></label>
@@ -548,7 +580,12 @@ function toast(msg, ms = 2500) {
 const actions = {
   call: (el) => bridge.phoneCall(el.dataset.phone),
   map: (el) => { const c = centerById(el.dataset.center); bridge.launchMap(c.lat, c.lng, c.name); },
-  link: (el) => bridge.openLink(el.dataset.url),
+  link: (el) => {
+    // 從「借XX」去官網預約時先記住，回來時問「預約成功了嗎？」，避免忘記記下預約
+    if (el.dataset.pending) { state.pending = { item: el.dataset.pending, at: now().toISOString() }; save(); }
+    bridge.openLink(el.dataset.url);
+  },
+  dismissPending() { delete state.pending; save(); render(); },
   need(el) {
     const q = new URLSearchParams((location.hash.split('?')[1]) || '');
     const ids = new Set((q.get('needs') || '').split(',').filter(Boolean));
@@ -633,12 +670,14 @@ function render() {
   const header = bridge.isInApp()
     ? (demoChip ? `<div class="demo-bar">${demoChip}</div>` : '')
     : `<header class="topbar"><a class="home-link" href="#/">輔具借用小幫手</a><span class="topbar-title">${esc(view.title)}</span>${demoChip}</header>`;
-  document.getElementById('app').innerHTML = `${header}<main>${view.html}</main>`;
+  document.getElementById('app').innerHTML = `${header}<main>${path.startsWith('#/loan/new') ? '' : pendingBanner()}${view.html}</main>`;
   if (hash !== lastHash) window.scrollTo(0, 0);
   lastHash = hash;
   view.mount?.();
 }
 
+// 從官網按返回回來時，瀏覽器會捲回原位置，最上面的「預約成功了嗎？」會看不到，所以一律從頂端開始
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 window.addEventListener('hashchange', render);
 render();
 // 頁面停留時，每分鐘更新一次倒數

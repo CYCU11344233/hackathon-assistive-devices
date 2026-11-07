@@ -97,3 +97,16 @@ test('通知內容不會觸發台北通的訂閱指令', async () => {
   notify('t', '已訂閱輪椅', (_t, c) => { got = c; });
   assert.equal(/已訂閱/.test(got), false);
 });
+
+test('國定假日休館：2027 春節連假，到期日要提早送回', () => {
+  const closed = new Set(['2027-02-04', '2027-02-05', '2027-02-06', '2027-02-07', '2027-02-08', '2027-02-09', '2027-02-10']);
+  const heyi = { ...H.heyi, closed };
+  // 2027/2/9（二）到期，合宜 2/4–2/10 都休館，最晚要在 2/3（三）17:00 送回
+  const loan = { reservedAt: new Date(2026, 10, 7).toISOString(), pickedUpAt: new Date(2026, 10, 9).toISOString(), dueDate: new Date(2027, 1, 9).toISOString() };
+  const s = loanStage(loan, heyi, new Date(2027, 0, 20));
+  assert.equal(s.dueClosed, true);
+  assert.deepEqual(s.returnBy, new Date(2027, 1, 3, 17));
+  // 春節前夕 2/3（三）16:30 預約：2/4 起連休，只剩當天 30 分鐘
+  const p = pickupStatus(heyi, new Date(2027, 1, 3, 16, 30), new Date(2027, 1, 3, 16, 30));
+  assert.equal(p.status, 'urgent');
+});

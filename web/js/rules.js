@@ -58,10 +58,18 @@ export function diffDays(a, b) {
   return Math.round((startOfDay(b) - startOfDay(a)) / DAY);
 }
 
+/** 本地日期的 'YYYY-MM-DD'。 */
+export function dateKey(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** 某一天的開放時段。 */
 export function intervalsOnDate(hours, date) {
   const day0 = startOfDay(date);
   if (!hours.days.includes(day0.getDay())) return [];
+  // 國定假日休館（hours.closed 是 'YYYY-MM-DD' 的集合或 Map，由呼叫端放入）
+  if (hours.closed && hours.closed.has(dateKey(day0))) return [];
   return hours.ranges.map(([s, e]) => ({
     start: new Date(day0.getTime() + s * MIN),
     end: new Date(day0.getTime() + e * MIN),
@@ -197,7 +205,8 @@ export function reminderFor(loan, hours, now, fmt = (d) => d.toLocaleString()) {
     for (const d of REMINDER_DAYS) {
       if (s.daysLeft <= d && (d === 0 || s.daysLeft > nextLower(d))) {
         const when = s.daysLeft === 0 ? '今天' : `${s.daysLeft} 天後`;
-        const renew = s.canRenew ? '需要繼續使用的話，記得先辦理續借（限 1 次）。' : '已經續借過，到期請歸還。';
+        // 續借規定原文：「若具特殊需求，得限續借 1 次」（二手輔具借用須知）
+        const renew = s.canRenew ? '若具特殊需求，得申請續借 1 次，請先洽輔具中心辦理。' : '已續借 1 次，請於期限內歸還。';
         return { key: `due-${d}`, title: `${item}：${when}到期`, content: `${renew}歸還前請用 75% 酒精消毒並晾乾。` };
       }
     }

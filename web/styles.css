@@ -191,3 +191,32 @@ button.big-btn { width: 100%; font: inherit; text-align: left; cursor: pointer; 
 .need-chip { font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
 .need-chip.on { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
 .item.rec { border-color: var(--primary); border-width: 2px; font-weight: 700; }
+
+/* ---------- 給長輩用：字和按鈕都放大 ----------
+   基本字級 17px → 20px；所有可按的東西至少 56px 高；說明字不再縮太小。 */
+body { font-size: 20px; line-height: 1.55; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1.1rem; }
+.small { font-size: .95rem; }
+.btn { min-height: 56px; padding: 10px 18px; font-size: 1.05rem; }
+.btn.big { min-height: 68px; font-size: 1.15rem; }
+.btn-row .btn { flex: 1 1 140px; }
+.big-btn { padding: 20px; gap: 16px; min-height: 84px; }
+.big-btn > span { font-size: 2.2rem; }
+.big-btn strong { font-size: 1.2rem; }
+.item { min-height: 64px; font-size: 1.1rem; }
+.item-grid { gap: 10px; }
+.need-chip { padding: 12px 16px; font-size: 1rem; }
+.form input[type=date], .form input:not([type]), .form select { min-height: 56px; font-size: 1.1rem; }
+.radio { min-height: 48px; }
+.radio input { width: 24px; height: 24px; }
+.checklist input { width: 28px; height: 28px; }
+.checklist label { padding: 12px 0; }
+.more summary, .needs > summary { padding: 10px 0; }
+/* 中心的地址與時間 */
+.info { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 8px 0 0; font-size: 1rem; }
+.info dt { color: var(--muted); white-space: nowrap; }
+.info dd { margin: 0; }
+/* 回來時問「預約成功了嗎」 */
+.pending { border: 2px solid var(--primary); margin-top: 12px; }
+.pending .btn.ghost { width: 100%; margin-top: 8px; }

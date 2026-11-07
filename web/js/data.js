@@ -1,7 +1,9 @@
 // 中心名稱、開放時間、地址、電話：臺北市二手輔具資源提供單位（臺北市政府社會局，政府資料開放授權條款第1版）
 //   https://data.gov.tw/dataset/135817 ，2026-11-07 下載
 // 入口提示：臺北市二手輔具借用須知 https://tpap.taipei/app37/rentView/intaipei
-// 座標：OpenStreetMap Nominatim 依地址查詢（© OpenStreetMap contributors, ODbL）；合宜中心只查到玉門街 1 號園區，為約略位置。
+// 座標：OpenStreetMap Nominatim 依地址查詢（© OpenStreetMap contributors, ODbL），只用來算距離排序；
+//   合宜中心 OSM 沒有建物資料，座標是園區位置。導航改用中心名稱讓地圖 App 搜尋，所以會導到正確地點。
+// 合宜中心在臺北悠活村內：臺北市輔具資源整合資訊網的中心介紹。
 export const CENTERS = [
   {
     id: 'heyi',
@@ -14,7 +16,7 @@ export const CENTERS = [
     lat: 25.0695,
     lng: 121.5212,
     approx: true,
-    entrance: '位於花博公園（玉門街 1 號）園區內，位置為約略標示。',
+    entrance: '在臺北悠活村內，捷運圓山站 1 號出口',
   },
   {
     id: 'south',
@@ -27,7 +29,7 @@ export const CENTERS = [
     lat: 25.0386,
     lng: 121.5829,
     approx: false,
-    entrance: '在廣慈衛福大樓，請從西 2 門的 B 電梯廳進入。',
+    entrance: '廣慈衛福大樓，從西 2 門 B 電梯廳進入',
   },
   {
     id: 'west',
@@ -40,7 +42,7 @@ export const CENTERS = [
     lat: 25.0505,
     lng: 121.5208,
     approx: false,
-    entrance: '在臺北市政府衛生局舊址後方。',
+    entrance: '臺北市政府衛生局舊址後方',
   },
 ];
 
