@@ -279,3 +279,14 @@ details.danger-zone .btn { margin-top: 8px; }
 .item .name { font-size: 1.1rem; line-height: 1.3; }
 .item.rec .thumb { outline: 2px solid var(--primary); outline-offset: -2px; }
 .demo-notify { display: grid; gap: 8px; margin-top: 10px; } .demo-notify .btn { width: 100%; }
+/* 款式卡片：左圖右文 */
+.model-top { display: grid; grid-template-columns: 104px 1fr; gap: 12px; align-items: start; }
+.model-img { display: grid; place-items: center; aspect-ratio: 1; background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+.model-img img { width: 100%; height: 100%; object-fit: contain; }
+.model-info h3 { margin: 0 0 4px; font-size: 1.15rem; line-height: 1.3; }
+.model-spec { margin: 0 0 6px; line-height: 1.4; }
+.model .centers-stock { margin-top: 10px; }
+.card.model.focus { border: 2px solid var(--primary); }
+.focus-tag { margin: -4px 0 8px; color: var(--primary); font-weight: 700; font-size: .95rem; }
+.btn-row.stack .small { margin: 0; }
+.loading { color: var(--muted); padding: 24px 0; text-align: center; }

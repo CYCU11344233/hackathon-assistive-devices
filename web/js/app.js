@@ -42,7 +42,6 @@ function dayWord(d) {
 }
 const fmtSmart = (d) => `${dayWord(d)} ${fmtTime(d)}`;
 const toDateInput = (d) => { d = new Date(d); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const toDTInput = (d) => `${toDateInput(d)}T${fmtTime(d)}`;
 function fromDateInput(s) {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -213,17 +212,20 @@ const CENTER_SHORT = { heyi: '合宜', west: '西區', south: '南區' };
 // 官網的中心編號
 const OFFICIAL_CENTER = { heyi: 1, south: 2, west: 3 };
 let stock = null;
+let stockLoading = true; // 第一次載入中；失敗時改成 false，畫面退回沒有庫存的版本
 // 這些頁面有使用者正在填的表單或查詢結果，自動重畫會清掉
 const busyForm = () => ['loan-form', 'demo-form', 'reserve-form', 'q-form'].some((id) => document.getElementById(id));
 fetch('/api/stock')
   .then((r) => (r.ok ? r.json() : null))
   .then((d) => {
-    if (!d?.categories) return;
-    stock = d;
+    if (d?.categories) stock = d;
+  })
+  .catch(() => {})
+  .finally(() => {
+    stockLoading = false;
     // 正在填表單時不要重畫（busyForm），避免清掉使用者輸入
     if (!busyForm()) render();
-  })
-  .catch(() => {});
+  });
 // 官網大類編號 → 圖片（庫存還沒載入時也能顯示）
 const ITEM_IMG = {
   輪椅: 1, 助行器: 2, 拐杖: 3, 便盆椅: 4, 輪椅座墊: 5, 氣墊床: 6, 洗澡椅: 7, 助步車: 8,
@@ -245,7 +247,7 @@ function watchList() {
   return `<h2>到貨通知</h2>${watches().map((w) => {
     const m = stockModel(w.modelId);
     const has = m && m.remaining > 0;
-    return `<a class="card link tone-border-${has ? 'ok' : 'muted'}" href="#/borrow?step=plan&item=${encodeURIComponent(w.item)}">
+    return `<a class="card link tone-border-${has ? 'ok' : 'muted'}" href="#/borrow?step=plan&item=${encodeURIComponent(w.item)}&focus=${w.modelId}">
       <div class="card-head"><h3>${esc(w.item)}</h3><span class="chip ${has ? 'ok' : 'muted'}">${has ? `有貨 ${m.remaining}` : '等待中'}</span></div>
       <p class="line">${esc(w.name)}${has ? '・可以預約了' : w.official ? `・已在官網候補（${(w.centers || []).map((c) => CENTER_SHORT[c]).join('、')}）` : '・有貨時會通知你'}</p></a>`;
   }).join('')}`;
@@ -445,21 +447,36 @@ function borrow(_m, q) {
   }
   if (step === 'plan' && stockCat(item)) {
     const cat = stockCat(item);
-    const models = [...cat.models].sort((a, b) => (b.remaining > 0) - (a.remaining > 0));
-    const modelCard = (m) => `<article class="card model">
-      <div class="card-head"><h3>${esc(m.name)}</h3>${m.remaining > 0 ? `<span class="chip ok">剩 ${m.remaining}</span>` : `<span class="chip warn">排隊 ${m.waiting} 人</span>`}</div>
-      ${m.spec ? `<p class="line">${esc(m.spec)}</p>` : ''}
+    // 從首頁「到貨通知」點進來時，等待中的那款排最上面
+    const focus = Number(q.get('focus')) || null;
+    const models = [...cat.models].sort((a, b) => (b.id === focus) - (a.id === focus) || (b.remaining > 0) - (a.remaining > 0));
+    const waitBtns = (m) => {
+      const w = watches().find((x) => x.modelId === m.id);
+      if (w?.official) {
+        return `<p class="small">已在官網候補（${(w.centers || []).map((c) => CENTER_SHORT[c]).join('、')}），有貨時也會通知你</p>
+          <a class="btn danger-outline" href="#/official">查看或取消候補</a>`;
+      }
+      return `${w
+        ? `<button class="btn" data-act="unwatch" data-model="${m.id}">${ICON.bell} 已設定到貨通知（取消）</button>`
+        : `<button class="btn primary" data-act="watch" data-model="${m.id}" data-item="${esc(item)}">${ICON.bell} 有貨時通知我</button>`}
+        <a class="btn ghost" href="#/reserve?wait=1&model=${m.id}&item=${encodeURIComponent(item)}">登記候補（排隊）</a>`;
+    };
+    const modelCard = (m) => `<article class="card model ${m.id === focus ? 'focus' : ''}">
+      ${m.id === focus ? '<p class="focus-tag">你等待中的款式</p>' : ''}
+      <div class="model-top">
+        <span class="model-img"><img src="img/models/${m.id}.jpg" alt="${esc(m.name)}" loading="lazy" onerror="this.onerror=null;this.src='img/items/${cat.id}.jpg'"></span>
+        <div class="model-info">
+          <h3>${esc(m.name)}</h3>
+          ${m.spec ? `<p class="model-spec">${esc(m.spec)}</p>` : ''}
+          ${m.remaining > 0 ? `<span class="chip ok">剩 ${m.remaining}</span>` : `<span class="chip warn">排隊 ${m.waiting} 人</span>`}
+        </div>
+      </div>
       ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
       ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
       ${activeLoanFor(m.id) ? `<div class="btn-row"><a class="btn" href="#/loan/${activeLoanFor(m.id).id}">你已預約這款，查看</a></div>` : `<div class="btn-row ${m.remaining > 0 ? '' : 'stack'}">${m.remaining > 0
         ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<a class="btn primary" href="#/reserve?center=${k}&model=${m.id}&item=${encodeURIComponent(item)}">在${CENTER_SHORT[k]}預約</a>`).join('')
           || `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}">去官網預約這款</button>`
-        : `${watches().some((w) => w.modelId === m.id)
-            ? `<button class="btn" data-act="unwatch" data-model="${m.id}">${ICON.bell} 已設定通知（取消）</button>`
-            : `<button class="btn primary" data-act="watch" data-model="${m.id}" data-item="${esc(item)}">${ICON.bell} 有貨時通知我</button>`}
-           ${watches().some((w) => w.modelId === m.id && w.official)
-              ? '<p class="small">已在官網登記候補</p>'
-              : `<a class="btn ghost" href="#/reserve?wait=1&model=${m.id}&item=${encodeURIComponent(item)}">登記候補（排隊）</a>`}`}</div>`}
+        : waitBtns(m)}</div>`}
     </article>`;
     return {
       title: `借${item}`,
@@ -467,6 +484,9 @@ function borrow(_m, q) {
       ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了。可以「登記候補」排隊，或按「有貨時通知我」</div>'}
       <h2>選款式</h2>${models.map(modelCard).join('')}`,
     };
+  }
+  if (step === 'plan' && stockLoading) {
+    return { title: `借${item}`, html: '<p class="loading">庫存載入中…</p>' };
   }
   if (step === 'plan') {
     return {
@@ -769,7 +789,11 @@ function demo() {
     title: '示範模式',
     html: `<p>目前時間：<strong>${fmtDate(now())} ${fmtTime(now())}</strong>${state.demoOffset ? '（示範時間）' : ''}</p>
     <form id="demo-form" class="form card">
-      <label>把時間設成<input type="datetime-local" name="t" value="${toDTInput(now())}"></label>
+      <div class="field-row">
+        <label>日期<input type="date" name="d" value="${toDateInput(now())}"></label>
+        <label>時間（24 小時制）<select name="hm">${Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? '30' : '00'}`)
+          .map((t) => `<option ${t === `${pad(now().getHours())}:${now().getMinutes() < 30 ? '00' : '30'}` ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      </div>
       <div class="btn-row"><button class="btn primary" type="submit">套用</button>
         <button class="btn" type="button" data-act="shift" data-days="1">+1 天</button>
         <button class="btn" type="button" data-act="shift" data-days="7">+7 天</button></div>
@@ -791,9 +815,10 @@ function demo() {
     mount() {
       document.getElementById('demo-form').addEventListener('submit', (e) => {
         e.preventDefault();
-        const v = e.target.t.value;
-        if (!v) return;
-        state.demoOffset = fromDTInput(v).getTime() - Date.now();
+        // 不用 datetime-local：手機設成 12 小時制時會顯示成「4:30」，看不出是下午
+        const { d, hm } = e.target;
+        if (!d.value) return;
+        state.demoOffset = fromDTInput(`${d.value}T${hm.value}`).getTime() - Date.now();
         save(); toast('已套用示範時間'); render();
       });
     },
