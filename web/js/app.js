@@ -90,10 +90,10 @@ function nearestSlot(slots, t) {
 // ---------- 狀態文字 ----------
 function pickupText(p) {
   switch (p.status) {
-    case 'impossible': return { tone: 'danger', text: '2 天內沒開館，無法取貨' };
-    case 'expired': return { tone: 'muted', text: `已過取貨期限（${fmtSmart(p.deadline)}）` };
-    case 'urgent': return { tone: 'danger', text: `${fmtSmart(p.deadline)} 前取貨，只剩 ${minsText(p.remainingMin)}` };
-    default: return { tone: 'info', text: `最晚 ${fmtSmart(p.deadline)} 取貨` };
+    case 'impossible': return { tone: 'danger', text: '取件期限內無開館時段，請洽中心' };
+    case 'expired': return { tone: 'muted', text: `已逾取件期限（${fmtSmart(p.deadline)}）` };
+    case 'urgent': return { tone: 'danger', text: `取件期限：${fmtSmart(p.deadline)}（剩 ${minsText(p.remainingMin)}）` };
+    default: return { tone: 'info', text: `取件期限：${fmtSmart(p.deadline)}` };
   }
 }
 
@@ -103,13 +103,14 @@ function loanStatus(loan) {
   if (s.stage === 'reserved') return { ...pickupText(s.pickup), s, label: '等待取貨' };
   if (s.stage === 'borrowed') {
     const due = fmtDate(s.due);
-    const closed = s.dueClosed && s.level !== 'overdue' ? `，當天休館，${fmtSmart(s.returnBy)} 前送回` : '';
-    if (s.level === 'overdue') return { tone: 'danger', text: `逾期 ${-s.daysLeft} 天`, s, label: '借用中' };
-    if (s.level === 'urgent') return { tone: 'danger', text: `${s.daysLeft === 0 ? '今天' : '明天'}到期${closed}`, s, label: '借用中' };
-    if (s.level === 'soon') return { tone: 'warn', text: `${s.daysLeft} 天後到期${closed}`, s, label: '借用中' };
-    return { tone: 'ok', text: `${due} 到期${closed}`, s, label: '借用中' };
+    // 到期日休館時，改提示最後可歸還的時間
+    const closed = s.dueClosed && s.level !== 'overdue' ? `（當日休館，請於 ${fmtDate(s.returnBy)} ${fmtTime(s.returnBy)} 前歸還）` : '';
+    if (s.level === 'overdue') return { tone: 'danger', text: `已逾歸還期限 ${-s.daysLeft} 天`, s, label: '借用中' };
+    if (s.level === 'urgent') return { tone: 'danger', text: `歸還期限：${s.daysLeft === 0 ? '今日' : '明日'}${closed}`, s, label: '借用中' };
+    if (s.level === 'soon') return { tone: 'warn', text: `歸還期限：${due}，剩 ${s.daysLeft} 天${closed}`, s, label: '借用中' };
+    return { tone: 'ok', text: `歸還期限：${due}${closed}`, s, label: '借用中' };
   }
-  if (s.late && s.suspendedNow) return { tone: 'danger', text: `停權到 ${fmtDate(s.suspendedUntil)}`, s, label: '已歸還' };
+  if (s.late && s.suspendedNow) return { tone: 'danger', text: `停權至 ${fmtDate(s.suspendedUntil)}`, s, label: '已歸還' };
   return { tone: 'muted', text: `${fmtDate(loan.returnedAt)} 已歸還`, s, label: '已歸還' };
 }
 
@@ -176,7 +177,9 @@ function centerInfo(c) {
 // 開館中才顯示「現在預約要在什麼時候前取貨」；休館中上一行已經寫了下次開門時間，
 // 而且晚上也能在官網預約開館時段，不需要再多一行
 function bookLine(c, p, pt) {
-  return openStatus(HOURS[c.id], now()).open ? `<p class="line tone-${pt.tone}">現在預約：${pt.text}</p>` : '';
+  if (!openStatus(HOURS[c.id], now()).open) return '';
+  const text = p.status === 'impossible' ? '若現在預約，取件期限內無開館時段' : `若現在預約，取件期限為 ${fmtSmart(p.deadline)}`;
+  return `<p class="line tone-${pt.tone}">${text}</p>`;
 }
 
 function centerCard({ c, p, dist }, showPickup = true) {
@@ -623,7 +626,10 @@ function loanDetail(m) {
         ${p.status === 'expired' ? '<div class="btn-row"><a class="btn" href="#/borrow">重新預約</a></div>' : ''}
         ${centerInfo(c)}</div>
       <div class="card"><h3>出門前檢查</h3>${checklist(loan, 'pickup')}</div>
-      <button class="btn primary big" data-act="pickedUp" data-loan="${loan.id}">✅ 已完成借用（已取貨）</button>`;
+      <section class="card actions-card"><h3>辦理</h3>
+        <button class="btn primary big" data-act="pickedUp" data-loan="${loan.id}">已完成借用（已取貨）</button>
+        <button class="btn danger-outline big" data-act="cancelLoan" data-loan="${loan.id}">取消預約</button>
+        <p class="small">不需要時請取消預約，以利其他民眾借用。</p></section>`;
   } else if (s.stage === 'borrowed') {
     body += `<div class="days tone-${st.tone}"><strong>${s.daysLeft < 0 ? `逾期 ${-s.daysLeft}` : s.daysLeft}</strong><span>${s.daysLeft < 0 ? '天' : '天後到期'}</span></div>`;
     if (s.level === 'overdue') {
@@ -637,7 +643,8 @@ function loanDetail(m) {
           <label>新的歸還期限（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
           <button class="btn" type="submit">已辦妥續借</button></form>`
       : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
-    body += `<button class="btn primary big" data-act="returned" data-loan="${loan.id}">✅ 已歸還</button>
+    body += `<section class="card actions-card"><h3>辦理</h3>
+        <button class="btn primary big" data-act="returned" data-loan="${loan.id}">已歸還</button></section>
       <div class="card"><h3>${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>`;
   } else {
     body += s.late
@@ -650,9 +657,7 @@ function loanDetail(m) {
       <p class="status tone-${st.tone}">${st.text}</p></section>
       ${timeline(loan, st)}
       ${body}
-      ${s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">如不再需要，請取消預約，以便輔具提供予其他民眾借用。取消紀錄將保留於「過去的紀錄」。</p>
-        <div class="btn-row"><button class="btn danger-outline" data-act="cancelLoan" data-loan="${loan.id}">取消預約</button></div></div>` : ''}
-      <a class="btn primary big" href="#/">回首頁</a>
+      <nav class="page-end"><a class="btn ghost big" href="#/">回首頁</a></nav>
       ${loan.viaApp ? '' : `<details class="more danger-zone"><summary>其他</summary>
         <p class="small">這筆是手動記的。記錯了可以刪除，不會影響官網或中心的預約。</p>
         <button class="btn ghost" data-act="delete" data-loan="${loan.id}">刪除這筆紀錄</button></details>`}`,
