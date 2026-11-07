@@ -180,16 +180,16 @@ function home() {
     title: '二手輔具借用小幫手',
     html: `
     ${suspended ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(suspended.st.s.suspendedUntil)}</strong> 前不能再借。</div>` : ''}
+    <div class="big-actions">
+      <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具（免費）</strong></div></a>
+      <a class="big-btn" href="#/loan/new"><span>📝</span><div><strong>記下預約</strong></div></a>
+      <a class="big-btn" href="#/centers"><span>🏥</span><div><strong>輔具中心</strong></div></a>
+    </div>
     ${active.length ? `<h2>我的借用</h2>${active.map(({ l, st }) => `
       <a class="card link tone-border-${st.tone}" href="#/loan/${l.id}">
         <div class="card-head"><h3>${esc(l.item)}</h3><span class="chip ${st.tone}">${st.label}</span></div>
         <p class="line tone-${st.tone}">${st.text}</p>
       </a>`).join('')}` : ''}
-    <div class="big-actions">
-      <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具</strong></div></a>
-      <a class="big-btn" href="#/loan/new"><span>📝</span><div><strong>記下預約</strong></div></a>
-      <a class="big-btn" href="#/centers"><span>🏥</span><div><strong>輔具中心</strong></div></a>
-    </div>
     ${returned.length ? `<details class="returned"><summary>已歸還（${returned.length}）</summary>${returned.map(({ l, st }) => `
       <a class="card link" href="#/loan/${l.id}"><div class="card-head"><h3>${esc(l.item)}</h3></div><p class="line tone-${st.tone}">${st.text}</p></a>`).join('')}</details>` : ''}
     <p class="footer-links"><a href="#/sources">資料來源</a></p>
@@ -211,45 +211,27 @@ function borrow(_m, q) {
     };
   }
   if (step === 'item') {
+    // 一頁搞定：直接點輔具；不確定的話先點上面的需求，建議的輔具會排到最前面並標出來。
+    // 需求放在網址裡（replace，不留瀏覽紀錄），點進「借XX」後按返回還會保留。
+    const ids = (q.get('needs') || '').split(',').filter(Boolean);
+    const picked = NEEDS.filter((n) => ids.includes(n.id));
+    const rec = new Set(picked.flatMap((n) => n.items));
+    const all = [...ITEMS, '爬梯機'];
+    const tile = (it) => {
+      const href = it === '爬梯機' ? '#/borrow?step=stair' : `#/borrow?step=plan&item=${encodeURIComponent(it)}`;
+      return `<a class="item ${rec.has(it) ? 'rec' : ''}" href="${href}">${rec.has(it) ? '👍 ' : ''}${esc(it)}</a>`;
+    };
+    const recItems = all.filter((it) => rec.has(it));
+    const others = all.filter((it) => !rec.has(it));
     return {
       title: '想借什麼？',
-      html: `<div class="big-actions">
-        <button class="big-btn" data-act="link" data-url="${LINKS.reserve}"><span>✅</span><div><strong>我知道要借哪種輔具</strong><small>直接到官網預約</small></div></button>
-        <a class="big-btn" href="#/borrow?step=need"><span>🤔</span><div><strong>我不確定要借哪種</strong><small>回答幾個問題，幫你找</small></div></a>
-      </div>`,
-    };
-  }
-  if (step === 'need') {
-    return {
-      title: '需要哪些幫忙？',
-      html: `<h2>使用的人需要哪些幫忙？</h2><p class="small">可以複選</p>
-      <form id="need-form" class="form">
-        ${NEEDS.map((n) => `<label class="radio"><input type="checkbox" name="need" value="${n.id}"> ${esc(n.label)}</label>`).join('')}
-        <button class="btn primary big" type="submit">看建議</button>
-      </form>`,
-      mount() {
-        const f = document.getElementById('need-form');
-        f.addEventListener('submit', (e) => {
-          e.preventDefault();
-          const picked = [...f.querySelectorAll('input[name=need]:checked')].map((x) => x.value);
-          if (!picked.length) { toast('請至少選一項'); return; }
-          location.hash = `#/borrow?step=suggest&needs=${picked.join(',')}`;
-        });
-      },
-    };
-  }
-  if (step === 'suggest') {
-    const ids = (q.get('needs') || '').split(',');
-    const picked = NEEDS.filter((n) => ids.includes(n.id));
-    const items = [...new Set(picked.flatMap((n) => n.items))];
-    return {
-      title: '建議的輔具',
-      html: `<h2>可以考慮這些</h2>
-      <div class="item-grid">${items.map((it) => it === '爬梯機'
-        ? '<a class="item" href="#/borrow?step=stair">爬梯機</a>'
-        : `<a class="item" href="#/borrow?step=plan&item=${encodeURIComponent(it)}">${esc(it)}</a>`).join('')}</div>
-      <p class="small">只是建議，不確定的話先打電話問輔具中心</p>
-      <div class="btn-row"><a class="btn" href="#/centers">📞 輔具中心電話</a></div>`,
+      html: `<details class="needs" ${picked.length ? 'open' : ''}><summary>🤔 不確定借哪種？點選需求</summary>
+        <div class="chips">${NEEDS.map((n) => `<button class="need-chip ${ids.includes(n.id) ? 'on' : ''}" data-act="need" data-id="${n.id}">${esc(n.label)}</button>`).join('')}</div>
+        ${picked.length ? '<p class="small">只是建議，不確定可先打電話問輔具中心</p>' : ''}
+      </details>
+      ${recItems.length ? `<h2>建議</h2><div class="item-grid">${recItems.map(tile).join('')}</div><h2>其他</h2>` : '<h2>點選要借的輔具</h2>'}
+      <div class="item-grid">${others.map(tile).join('')}
+        <a class="item" href="#/borrow?step=plan&item=${encodeURIComponent('其他輔具')}">其他</a></div>`,
     };
   }
   if (step === 'stair') {
@@ -567,6 +549,12 @@ const actions = {
   call: (el) => bridge.phoneCall(el.dataset.phone),
   map: (el) => { const c = centerById(el.dataset.center); bridge.launchMap(c.lat, c.lng, c.name); },
   link: (el) => bridge.openLink(el.dataset.url),
+  need(el) {
+    const q = new URLSearchParams((location.hash.split('?')[1]) || '');
+    const ids = new Set((q.get('needs') || '').split(',').filter(Boolean));
+    if (ids.has(el.dataset.id)) ids.delete(el.dataset.id); else ids.add(el.dataset.id);
+    replaceTo(`#/borrow?step=item${ids.size ? `&needs=${[...ids].join(',')}` : ''}`);
+  },
   async locate(el) {
     el.disabled = true;
     el.textContent = '定位中…';

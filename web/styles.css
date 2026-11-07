@@ -184,3 +184,10 @@ button.big-btn { width: 100%; font: inherit; text-align: left; cursor: pointer; 
 .confirm > summary::-webkit-details-marker { display: none; }
 .confirm[open] > summary { opacity: .6; }
 .confirm .form { margin-top: 10px; }
+/* 想借什麼：需求篩選 */
+.needs { margin: 12px 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.needs > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.need-chip { font: inherit; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+.need-chip.on { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+.item.rec { border-color: var(--primary); border-width: 2px; font-weight: 700; }
