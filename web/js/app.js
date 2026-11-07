@@ -2,7 +2,7 @@ import {
   parseHours, openStatus, pickupStatus, loanStage, reminderFor, defaultDueDate,
   addMonths, addDays, diffDays, startOfDay, intervalsOnDate, WEEKDAY_NAMES,
 } from './rules.js';
-import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS } from './data.js';
+import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS, AGREEMENTS } from './data.js';
 import * as bridge from './bridge.js';
 import { HOLIDAYS } from './holidays.js';
 
@@ -189,21 +189,13 @@ function locateButton() {
   return myLoc ? '' : '<button class="btn ghost" data-act="locate">📍 依距離排序</button>';
 }
 
-// 去官網預約後回來（3 天內），在最上面問一次，按中心直接進到填好的「記下預約」
-function pendingBanner() {
-  const p = state.pending;
-  if (!p || now() - new Date(p.at) > 3 * 86400000) return '';
-  return `<div class="card pending"><h3>在官網預約「${esc(p.item)}」成功了嗎？</h3>
-    <p class="small">選預約的中心，馬上記下來</p>
-    <div class="btn-row">${CENTERS.map((c) => `<a class="btn primary" href="#/loan/new?item=${encodeURIComponent(p.item)}&center=${c.id}">${esc(shortName(c).replace('輔具中心', ''))}</a>`).join('')}</div>
-    <button class="btn ghost" data-act="dismissPending">沒有預約</button></div>`;
-}
-
 // ---------- 即時庫存 ----------
 // 由 serve.mjs 的 /api/stock 提供（爬臺北市輔具資源整合資訊網，快取 10 分鐘）。
 // 拿不到時 stock 維持 null，畫面退回沒有庫存資訊的版本。
 const OFFICIAL = 'https://tpap.taipei/app37/rentView';
 const CENTER_SHORT = { heyi: '合宜', west: '西區', south: '南區' };
+// 官網的中心編號
+const OFFICIAL_CENTER = { heyi: 1, south: 2, west: 3 };
 let stock = null;
 fetch('/api/stock')
   .then((r) => (r.ok ? r.json() : null))
@@ -219,6 +211,21 @@ function stockNote() {
   if (!stock) return '';
   const t = new Date(stock.fetchedAt);
   return `<p class="small">即時庫存（${fmtTime(t)} 更新，來源：臺北市輔具資源整合資訊網）${stock.stale ? '・官網暫時連不上，顯示上次資料' : ''}</p>`;
+}
+
+// 畫面中間跳出的確認視窗（用 <dialog>），回傳 Promise<boolean>
+function confirmDialog(title, text, okLabel) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'confirm-dialog';
+    d.innerHTML = `<h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ''}
+      <div class="btn-row"><button class="btn" value="no">取消</button><button class="btn danger-fill" value="yes">${esc(okLabel)}</button></div>`;
+    const done = (ok) => { d.close(); d.remove(); resolve(ok); };
+    d.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => done(b.value === 'yes')));
+    d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+    document.body.append(d);
+    d.showModal();
+  });
 }
 
 // ---------- 頁面 ----------
@@ -259,6 +266,24 @@ function borrow(_m, q) {
       <div class="btn-row"><button class="btn primary big" data-act="link" data-url="${LINKS.portal}">開啟輔具資源入口網</button></div>
       <p class="small">有長照需求也可以撥長照專線</p>
       <div class="btn-row"><button class="btn" data-act="call" data-phone="1966">📞 撥打 1966</button></div>`,
+    };
+  }
+  if (step === 'agree') {
+    // 官網「二手輔具借用須知」最後的三點注意事項，原文照錄；三個都勾才能繼續
+    return {
+      title: '借用注意事項',
+      html: `<h2>請閱讀並勾選以下三點</h2>
+      <form id="agree-form" class="form">
+        <ul class="checklist agree">${AGREEMENTS.map((t, i) => `<li><label><input type="checkbox" name="a${i}"> <span>${esc(t)}</span></label></li>`).join('')}</ul>
+        <p class="small">法定傳染病說明請見衛生福利部疾病管制署公告</p>
+        <div class="btn-row"><a class="btn" href="#/">我不同意</a><button class="btn primary" type="submit" disabled>我同意</button></div>
+      </form>`,
+      mount() {
+        const f = document.getElementById('agree-form');
+        const ok = f.querySelector('button[type=submit]');
+        f.addEventListener('change', () => { ok.disabled = !AGREEMENTS.every((_, i) => f[`a${i}`].checked); });
+        f.addEventListener('submit', (e) => { e.preventDefault(); location.hash = '#/borrow?step=item'; });
+      },
     };
   }
   if (step === 'item') {
@@ -305,7 +330,8 @@ function borrow(_m, q) {
       ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
       ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
       <div class="btn-row">${m.remaining > 0
-        ? `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}" data-pending="${esc(item)}">去官網預約這款</button>`
+        ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<button class="btn primary" data-act="reserve" data-center="${k}" data-model="${m.id}">在${CENTER_SHORT[k]}預約</button>`).join('')
+          || `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}">去官網預約這款</button>`
         : `<button class="btn" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">去官網登記到貨通知</button>`}</div>
     </article>`;
     return {
@@ -324,7 +350,7 @@ function borrow(_m, q) {
       html: `<ol class="steps">
         <li><strong>選中心</strong>（看下面）</li>
         <li><strong>到官網預約</strong>
-          <div class="btn-row"><button class="btn primary" data-act="link" data-url="${LINKS.reserve}" data-pending="${esc(item)}">去官網預約</button></div>
+          <div class="btn-row"><button class="btn primary" data-act="link" data-url="${LINKS.reserve}">去官網預約</button></div>
           <p class="small">官網顯示沒有庫存？換其他中心查，或打電話問中心什麼時候會有</p></li>
         <li><strong>回來記下預約</strong>
           <div class="btn-row"><a class="btn" href="#/loan/new?item=${encodeURIComponent(item)}">記下預約</a></div></li>
@@ -336,7 +362,7 @@ function borrow(_m, q) {
     title: '借用資格',
     html: `<h2>使用的人戶籍在臺北市嗎？</h2>
     <div class="choice">
-      <a class="btn primary big" href="#/borrow?step=item">是，戶籍在臺北市</a>
+      <a class="btn primary big" href="#/borrow?step=agree">是，戶籍在臺北市</a>
       <a class="btn big" href="#/borrow?step=out">不是</a>
     </div>`,
   };
@@ -426,7 +452,6 @@ function newLoan(_m, q) {
           checks: { pickup: [], return: [] },
         };
         state.loans.push(loan);
-        delete state.pending; // 已經記下，不用再問
         save();
         replaceTo(`#/loan/${loan.id}`);
       });
@@ -629,12 +654,14 @@ function toast(msg, ms = 2500) {
 const actions = {
   call: (el) => bridge.phoneCall(el.dataset.phone),
   map: (el) => { const c = centerById(el.dataset.center); bridge.launchMap(c.lat, c.lng, c.name); },
-  link: (el) => {
-    // 從「借XX」去官網預約時先記住，回來時問「預約成功了嗎？」，避免忘記記下預約
-    if (el.dataset.pending) { state.pending = { item: el.dataset.pending, at: now().toISOString() }; save(); }
-    bridge.openLink(el.dataset.url);
+  link: (el) => bridge.openLink(el.dataset.url),
+  // 在台北通選好中心後，直接把這款放進官網購物車（官網保留 1 小時），接著官網的「下一步」就是填資料，
+  // 填資料頁有「帶入台北通基本資料」。個資只在官網填寫，不經過我們的伺服器。
+  async reserve(el) {
+    const c = centerById(el.dataset.center);
+    if (!await confirmDialog(`在${shortName(c)}預約？`, '接下來會到官網填資料並送出，官網會幫你保留 1 小時', '去填資料')) return;
+    bridge.openLink(`${OFFICIAL}/returnList?centerId=${OFFICIAL_CENTER[el.dataset.center]}&typeId=${el.dataset.model}`);
   },
-  dismissPending() { delete state.pending; save(); render(); },
   need(el) {
     const q = new URLSearchParams((location.hash.split('?')[1]) || '');
     const ids = new Set((q.get('needs') || '').split(',').filter(Boolean));
@@ -659,13 +686,9 @@ const actions = {
     if (!el.checked && at >= 0) arr.splice(at, 1);
     save();
   },
-  delete(el) {
-    if (el.dataset.confirm !== '1') {
-      el.dataset.confirm = '1';
-      el.textContent = '再按一次確認刪除';
-      el.classList.add('danger');
-      return;
-    }
+  async delete(el) {
+    const loan = state.loans.find((l) => l.id === el.dataset.loan);
+    if (!await confirmDialog(`確定要刪除「${loan?.item || '這筆紀錄'}」嗎？`, '刪除後無法復原', '刪除')) return;
     state.loans = state.loans.filter((l) => l.id !== el.dataset.loan);
     save();
     replaceTo('#/');
@@ -673,8 +696,8 @@ const actions = {
   shift(el) { state.demoOffset = (state.demoOffset || 0) + Number(el.dataset.days) * 86400000; save(); render(); },
   realtime() { state.demoOffset = 0; save(); toast('已回到真實時間'); render(); },
   seed() { seedDemo(); replaceTo('#/'); },
-  wipe(el) {
-    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = '再按一次確認清除'; return; }
+  async wipe() {
+    if (!await confirmDialog('確定要清除所有資料嗎？', '所有借用紀錄都會刪除，無法復原', '清除')) return;
     state = { loans: [], demoOffset: 0 }; save(); toast('已清除'); render();
   },
 };
@@ -719,7 +742,7 @@ function render() {
   const header = bridge.isInApp()
     ? (demoChip ? `<div class="demo-bar">${demoChip}</div>` : '')
     : `<header class="topbar"><a class="home-link" href="#/">輔具借用小幫手</a><span class="topbar-title">${esc(view.title)}</span>${demoChip}</header>`;
-  document.getElementById('app').innerHTML = `${header}<main>${path.startsWith('#/loan/new') ? '' : pendingBanner()}${view.html}</main>`;
+  document.getElementById('app').innerHTML = `${header}<main>${view.html}</main>`;
   if (hash !== lastHash) window.scrollTo(0, 0);
   lastHash = hash;
   view.mount?.();

@@ -48,7 +48,7 @@ export function parseModels(html) {
     const id = Number(body.match(/(?:chooseCenterCategory|waitingRent)\/(\d+)/)?.[1] ?? NaN);
     if (!name || Number.isNaN(id) || Number.isNaN(remaining)) continue;
     // 尺寸欄有時和名稱一樣或兩格重複（例如「移位腰帶」），去掉重複的
-    const spec = [...new Set([tds[0], tds[1]])].filter((x) => x && x !== '---' && x !== name).join(' ');
+    const spec = [...new Set([tds[0], tds[1]])].filter((x) => x && x !== '---' && !name.includes(x)).join(' ');
     const desc = tds.find((t, i) => i >= 3 && t && !/^剩餘/.test(t) && !/等待人數/.test(t)) || '';
     const waiting = Number(body.match(/等待人數[:：]\s*(\d+)/)?.[1] ?? 0);
     out.push({ id, name, spec, remaining, desc, waiting });

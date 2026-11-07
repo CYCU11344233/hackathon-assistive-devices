@@ -227,3 +227,10 @@ h3 { font-size: 1.1rem; }
 .centers-stock span { padding: 4px 10px; border-radius: 999px; background: var(--line); color: var(--muted); font-size: .95rem; }
 .centers-stock span.has { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
 .model .line { color: var(--muted); }
+/* 置中確認視窗 */
+.confirm-dialog { border: 0; border-radius: var(--radius); padding: 24px 20px 16px; width: min(92vw, 420px); background: var(--surface); color: var(--text); }
+.confirm-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.confirm-dialog h3 { font-size: 1.2rem; margin-bottom: 8px; }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+.checklist.agree span { line-height: 1.5; }
+.btn[disabled] { opacity: .45; }
