@@ -1,6 +1,6 @@
 {
   "source": "臺北市輔具資源整合資訊網 https://tpap.taipei/app37/rentView/additem",
-  "fetchedAt": "2026-11-07T16:19:17.385Z",
+  "fetchedAt": "2026-11-07T16:54:20.309Z",
   "categories": [
     {
       "id": 1,
@@ -156,18 +156,18 @@
     {
       "id": 3,
       "name": "拐杖",
-      "remaining": 30,
+      "remaining": 29,
       "models": [
         {
           "id": 39,
           "name": "單枴",
           "spec": "使用者身高175cm以下",
-          "remaining": 21,
+          "remaining": 20,
           "desc": "通常是單手使用，適合單純平衡感略差、走路怕跌倒的使用者。",
           "waiting": 0,
           "centers": {
             "heyi": 0,
-            "west": 19,
+            "west": 18,
             "south": 2
           }
         },

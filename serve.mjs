@@ -4,12 +4,12 @@
 //   爬取失敗時回傳最後一次成功的快照 data/stock-snapshot.json，並標示 stale: true，
 //   這樣 Demo 現場網路不穩也能顯示資料。
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crawlStock, BASE } from './server/stock.mjs';
 import { validate, buildParams, maskParams, submitReservation } from './server/reserve.mjs';
+import { queryOfficial, cancelOfficial } from './server/query.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const root = join(here, 'web');
@@ -58,15 +58,12 @@ async function getStock() {
   }
 }
 
-const submits = new Map(); // 身分證雜湊 → 送出時間
-function allowSubmit(idno) {
-  const key = createHash('sha256').update(idno).digest('hex');
-  const day = Date.now() - 24 * 3600 * 1000;
-  const list = (submits.get(key) || []).filter((t) => t > day);
-  if (list.length >= 3) return false;
-  list.push(Date.now());
-  submits.set(key, list);
-  return true;
+// 官網購物車不能放同一款兩次；但分兩次送出官網擋不住，所以送出前先查這個人在官網
+// 還有沒有「沒取消、還沒過領取期限」的同類輔具預約，有的話就不再送。
+async function hasActiveSame(form, item) {
+  const { rents } = await queryOfficial({ name: form.name, idno: form.idno, phone: form.phone });
+  const today = new Date().toISOString().slice(0, 10);
+  return rents.some((r) => !r.cancelled && r.items.some((x) => x.item === item && x.deadline >= today));
 }
 
 function readBody(req) {
@@ -90,13 +87,14 @@ createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req));
       const errors = validate(body.form || {});
       if (errors.length) { sendJson(res, 400, { errors }); return; }
-      // 防濫用：同一個身分證 24 小時內最多真的送出 3 次（只在記憶體計數，不存身分證）
-      if (LIVE && body.live && !allowSubmit(String(body.form.idno || '').toUpperCase())) {
-        sendJson(res, 429, { errors: ['今天已經預約很多次了，請明天再試，或打電話給輔具中心'] });
+      const wait = body.wait ? { modelId: body.modelId, centers: body.centers || [] } : null;
+      if (wait && !wait.centers.length) { sendJson(res, 400, { errors: ['請至少勾選一個中心'] }); return; }
+      if (!LIVE || !body.live) {
+        sendJson(res, 200, { ok: true, dryRun: true, fields: maskParams(buildParams(body.form, wait)) });
         return;
       }
-      if (!LIVE || !body.live) {
-        sendJson(res, 200, { ok: true, dryRun: true, fields: maskParams(buildParams(body.form)) });
+      if (!wait && body.item && await hasActiveSame(body.form, body.item).catch(() => false)) {
+        sendJson(res, 409, { errors: [`你在官網已經有一筆還沒取貨的「${body.item}」預約，取貨或取消後才能再預約`] });
         return;
       }
       const result = await submitReservation(body);
@@ -106,6 +104,27 @@ createServer(async (req, res) => {
     } catch (err) {
       sendJson(res, 500, { errors: [err.message] });
     }
+    return;
+  }
+  if (urlPath === '/api/query' && req.method === 'POST') {
+    // 查詢只讀資料，演練模式也會真的查
+    try {
+      const who = JSON.parse(await readBody(req));
+      if (!who.name || !who.idno || !who.phone) { sendJson(res, 400, { errors: ['請填姓名、身分證字號、電話'] }); return; }
+      const { waits, rents } = await queryOfficial(who);
+      sendJson(res, 200, { waits, rents });
+    } catch (err) { sendJson(res, 502, { errors: [err.message] }); }
+    return;
+  }
+  if (urlPath === '/api/cancel' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!LIVE || !body.live) { sendJson(res, 200, { ok: true, dryRun: true }); return; }
+      const result = await cancelOfficial(body.who || {}, body);
+      console.log(`取消預約：${body.no ?? `候補 ${body.wait}`} → ${result.ok ? '成功' : '失敗'}`);
+      cache = null;
+      sendJson(res, result.ok ? 200 : 502, result);
+    } catch (err) { sendJson(res, 500, { errors: [err.message] }); }
     return;
   }
   if (urlPath === '/api/config') {

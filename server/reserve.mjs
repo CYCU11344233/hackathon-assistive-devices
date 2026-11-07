@@ -57,8 +57,11 @@ export function validate(f) {
   return err;
 }
 
-/** 組成官網表單的欄位（順序照官網表單） */
-export function buildParams(f) {
+/**
+ * 組成官網表單的欄位（順序照官網表單）。
+ * wait：登記候補時傳 { modelId, centers: ['heyi', 'west', ...] }（官網候補可以一次勾好幾個中心）
+ */
+export function buildParams(f, wait) {
   const p = new URLSearchParams();
   p.append('name', f.name.trim());
   p.append('idno', f.idno.trim().toUpperCase());
@@ -85,6 +88,15 @@ export function buildParams(f) {
   p.append('lcmsType', f.lcms);
   p.append('selectiveType', f.selective);
   p.append('waitValid', 'true');
+  if (wait) {
+    const id = Number(wait.modelId);
+    p.append('waitTypeId', String(id));
+    p.append('waitValid', 'true');
+    for (const c of wait.centers) {
+      p.append(`_centerCategory_${id}`, '');
+      p.append(`centerCategory_${id}`, String(OFFICIAL_CENTER[c]));
+    }
+  }
   p.append('_action_submitData', '完成');
   return p;
 }
@@ -125,17 +137,27 @@ const pageText = (html) => html
   .replace(/<[^>]+>/g, '\n').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
   .split('\n').map((s) => s.trim()).filter(Boolean);
 
-/** 真的送出預約。回傳 { ok, lines }：lines 是官網結果頁的主要文字，給使用者看。 */
-export async function submitReservation({ center, modelId, form }) {
-  const centerId = OFFICIAL_CENTER[center];
-  if (!centerId || !Number.isInteger(Number(modelId))) throw new Error('中心或款式不正確');
+/**
+ * 真的送出預約或候補。回傳 { ok, lines }：lines 是官網結果頁的主要文字，給使用者看。
+ * 預約：{ center, modelId, form }；候補：{ wait: true, centers: [...], modelId, form }
+ */
+export async function submitReservation({ center, modelId, form, wait, centers }) {
+  const id = Number(modelId);
+  const list = wait ? (centers || []).filter((c) => OFFICIAL_CENTER[c]) : [center];
+  if (!list.length || !OFFICIAL_CENTER[list[0]] || !Number.isInteger(id)) throw new Error('中心或款式不正確');
+  const centerId = OFFICIAL_CENTER[list[0]];
   const get = session();
-  const cart = await get(`/app37/rentView/returnList?centerId=${centerId}&typeId=${Number(modelId)}`);
-  if (!cart.html.includes(`typeid=${Number(modelId)}`)) throw new Error('官網沒有把這款放進預約清單，可能剛好被借走了');
+  // 候補：waitingRent 放進「候補預約」；預約：returnList 放進預約清單（官網保留 1 小時）
+  const cart = await get(wait
+    ? `/app37/rentView/waitingRent/${id}?centerId=${centerId}`
+    : `/app37/rentView/returnList?centerId=${centerId}&typeId=${id}`);
+  if (!cart.html.includes(wait ? `deleteWaitItem?typeid=${id}` : `typeid=${id}`)) {
+    throw new Error(wait ? '官網沒有把這款放進候補清單' : '官網沒有把這款放進預約清單，可能剛好被借走了');
+  }
   let ok = false;
   try {
     await get('/app37/rentView/basicdata');
-    const done = await get(`/app37/rentView/basicdata?${buildParams(form)}`);
+    const done = await get(`/app37/rentView/basicdata?${buildParams(form, wait ? { modelId: id, centers: list } : null)}`);
     const lines = pageText(done.html);
     const start = lines.findIndex((l) => l.includes('服務預約查詢與取消'));
     const end = lines.findIndex((l) => l.startsWith('網站維護單位'));
@@ -145,6 +167,8 @@ export async function submitReservation({ center, modelId, form }) {
     return { ok, lines: body.slice(0, 30) };
   } finally {
     // 沒成功就把購物車裡的這件放回去，不要佔住別人的庫存
-    if (!ok) await get(`/app37/rentView/deleteitem?centerid=${centerId}&typeid=${Number(modelId)}&num=0`).catch(() => {});
+    if (!ok) {
+      await get(wait ? `/app37/rentView/deleteWaitItem?typeid=${id}&num2=0` : `/app37/rentView/deleteitem?centerid=${centerId}&typeid=${id}&num=0`).catch(() => {});
+    }
   }
 }

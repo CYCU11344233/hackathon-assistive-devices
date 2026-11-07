@@ -21,9 +21,15 @@ let config = { liveReserve: false };
 fetch('/api/config').then((r) => r.json()).then((c) => { config = c; }).catch(() => {});
 
 let userInfo; // undefined：還沒問；null：拿不到
-async function loadUserInfo() {
+export async function loadUserInfo() {
   if (userInfo === undefined) userInfo = await bridge.getUserInfo().catch(() => null);
   return userInfo;
+}
+
+/** 查詢官網紀錄用的身分（不存起來） */
+export async function accountWho() {
+  const a = fromAccount(await loadUserInfo());
+  return a.name && a.idno && a.phone ? { name: a.name, idno: a.idno, phone: a.phone } : null;
 }
 
 /** 台北通帳號 → 表單預設值 */
@@ -49,7 +55,7 @@ const radios = (name, opts) => `<div class="radios">${opts.map(([v, label]) => `
  * 預約頁。ctx 由 app.js 傳入：{ esc, toast, confirmDialog, replaceTo, addLoan, centerName, model, item, center, render }
  */
 export function reservePage(ctx) {
-  const { esc, model, item, center } = ctx;
+  const { esc, model, item, center, wait } = ctx;
   const a = userInfo ? fromAccount(userInfo) : {};
   const v = (k) => esc(a[k] || '');
   const cannotPick = ctx.pickup.status === 'impossible';
@@ -58,16 +64,18 @@ export function reservePage(ctx) {
     ? '本中心 2 日內（含當日）無開館時段，預約後將無法於期限內取件，建議改選其他中心或先致電洽詢。'
     : `取件期限：預約成功後，請於 ${ctx.pickup.deadline} 前至本中心取件，逾期將自動取消。`;
   return {
-    title: '填寫預約資料',
+    title: wait ? '登記候補' : '填寫預約資料',
     html: `<div class="card summary">
-        <p class="small">預約 ${config.liveReserve ? '<span class="chip danger">正式送出</span>' : '<span class="chip muted">演練模式</span>'}</p>
+        <p class="small">${wait ? '登記候補' : '預約'} ${config.liveReserve ? '<span class="chip danger">正式送出</span>' : '<span class="chip muted">演練模式</span>'}</p>
         <h3>${esc(item)}・${esc(model.name)}${model.spec ? `（${esc(model.spec)}）` : ''}</h3>
-        <p>${esc(ctx.centerName)}</p>
-        <p class="line ${cannotPick ? 'tone-danger' : ''}">${esc(pickupLine)}</p>
+        ${wait ? `<p class="line">目前沒有庫存，依登記順序排隊；配對成功後請留意中心通知（目前 ${model.waiting} 人排隊）</p>` : `<p>${esc(ctx.centerName)}</p>
+        <p class="line ${cannotPick ? 'tone-danger' : ''}">${esc(pickupLine)}</p>`}
       </div>
       <div id="ui-note">${userInfo ? '<div class="alert ok">已帶入台北通帳號資料，請確認</div>' : ''}</div>
       <div id="errors"></div>
       <form id="reserve-form" class="form">
+        ${wait ? `<fieldset><legend>想在哪些中心候補（可複選）</legend>${Object.entries(ctx.centerShort).map(([k, n]) => `
+          <label class="radio"><input type="checkbox" name="waitCenter" value="${k}" checked> ${n}</label>`).join('')}</fieldset>` : ''}
         <h2>聯絡人</h2>
         <label>姓名<input name="name" value="${v('name')}" autocomplete="name"></label>
         <label>身分證字號<input name="idno" value="${v('idno')}" autocapitalize="characters"></label>
@@ -100,9 +108,9 @@ export function reservePage(ctx) {
         <fieldset><legend>長照資格</legend>${radios('lcms', [['1', '有資格'], ['0', '無資格']])}</fieldset>
         <fieldset><legend>福利資格</legend>${radios('selective', [['1', '一般收入戶'], ['2', '中低收入戶'], ['3', '低收入戶']])}</fieldset>
 
-        <button class="btn primary big" type="submit">送出預約</button>
-        <p class="small">預約成功後，請於 2 日內（含當日）開館時間至中心取件，逾期將自動取消。</p>
-        <button class="btn ghost" type="button" data-act="officialReserve" data-center="${center}" data-model="${model.id}">改到官網填寫</button>
+        <button class="btn primary big" type="submit">${wait ? '送出候補' : '送出預約'}</button>
+        ${wait ? '' : `<p class="small">預約成功後，請於 2 日內（含當日）開館時間至中心取件，逾期將自動取消。</p>
+        <button class="btn ghost" type="button" data-act="officialReserve" data-center="${center}" data-model="${model.id}">改到官網填寫</button>`}
       </form>`,
     async mount() {
       const f = document.getElementById('reserve-form');
@@ -141,19 +149,27 @@ export function reservePage(ctx) {
           userBirth: val('userBirth'),
           handicap: checked('handicap'), lcms: checked('lcms'), selective: checked('selective'),
         };
-        const ok = await ctx.confirmDialog(`確定在${ctx.centerName}預約？`, `${item}・${model.name}${cannotPick ? '。注意：本中心 2 日內無開館時段，預約後將無法取件' : ''}`, '送出', 'primary');
+        const centers = [...f.querySelectorAll('input[name=waitCenter]:checked')].map((x) => x.value);
+        if (wait && !centers.length) { ctx.toast('請至少勾選一個中心'); return; }
+        const ok = await ctx.confirmDialog(wait ? `確定登記候補？` : `確定在${ctx.centerName}預約？`, `${item}・${model.name}${cannotPick ? '。注意：本中心 2 日內無開館時段，預約後將無法取件' : ''}`, '送出', 'primary');
         if (!ok) return;
         const btn = f.querySelector('button[type=submit]');
         btn.disabled = true; btn.textContent = '送出中…';
         const res = await fetch('/api/reserve', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ center, modelId: model.id, live: config.liveReserve, form }),
+          body: JSON.stringify({ center, modelId: model.id, item, wait, centers, live: config.liveReserve, form }),
         }).then((r) => r.json()).catch(() => ({ errors: ['連不上伺服器，請稍後再試'] }));
-        btn.disabled = false; btn.textContent = '送出預約';
+        btn.disabled = false; btn.textContent = wait ? '送出候補' : '送出預約';
         if (res.errors?.length || res.ok === false) {
           const msgs = res.errors || res.lines || ['官網沒有接受這筆預約'];
           document.getElementById('errors').innerHTML = `<div class="alert danger"><strong>沒有送出</strong><ul>${msgs.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>`;
           window.scrollTo(0, 0);
+          return;
+        }
+        if (wait) {
+          ctx.addWatch(centers);
+          ctx.toast(res.dryRun ? '演練模式：資料檢查通過，已記到首頁的到貨通知（沒有真的送出）' : '已在官網登記候補', 5000);
+          ctx.replaceTo('#/');
           return;
         }
         // 成功（或演練）就直接記到「我的借用」，不用使用者自己再記一次

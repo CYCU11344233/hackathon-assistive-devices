@@ -5,7 +5,7 @@ import {
 import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS, AGREEMENTS } from './data.js';
 import * as bridge from './bridge.js';
 import { HOLIDAYS } from './holidays.js';
-import { reservePage } from './reserve.js';
+import { reservePage, accountWho } from './reserve.js';
 
 // 開放時間加上國定假日休館（人事行政總處辦公日曆表）
 const HOURS = Object.fromEntries(CENTERS.map((c) => [c.id, { ...parseHours(c.hoursText), closed: HOLIDAYS }]));
@@ -98,6 +98,7 @@ function pickupText(p) {
 }
 
 function loanStatus(loan) {
+  if (loan.cancelledAt) return { tone: 'muted', text: `${fmtDate(loan.cancelledAt)} 已取消預約`, s: { stage: 'cancelled' }, label: '已取消' };
   const s = loanStage(loan, HOURS[loan.centerId], now());
   if (s.stage === 'reserved') return { ...pickupText(s.pickup), s, label: '等待取貨' };
   if (s.stage === 'borrowed') {
@@ -207,13 +208,15 @@ const CENTER_SHORT = { heyi: '合宜', west: '西區', south: '南區' };
 // 官網的中心編號
 const OFFICIAL_CENTER = { heyi: 1, south: 2, west: 3 };
 let stock = null;
+// 這些頁面有使用者正在填的表單或查詢結果，自動重畫會清掉
+const busyForm = () => ['loan-form', 'demo-form', 'reserve-form', 'q-form'].some((id) => document.getElementById(id));
 fetch('/api/stock')
   .then((r) => (r.ok ? r.json() : null))
   .then((d) => {
     if (!d?.categories) return;
     stock = d;
-    // 正在填表單時不要重畫，避免清掉使用者輸入
-    if (!document.getElementById('loan-form') && !document.getElementById('demo-form')) render();
+    // 正在填表單時不要重畫（busyForm），避免清掉使用者輸入
+    if (!busyForm()) render();
   })
   .catch(() => {});
 const stockCat = (name) => stock?.categories.find((c) => c.name === name);
@@ -224,6 +227,9 @@ const stockModel = (id) => stock?.categories.flatMap((c) => c.models.map((m) => 
 // 有貨就跳台北通通知、首頁顯示「可以預約了」。和官網的「候補」不同：官網候補是排隊順位，
 // 這裡只是提醒「現在有貨」，兩個可以一起用。
 const watches = () => (state.watches ||= []);
+// 這一款還沒取貨、沒取消的預約（同一款不能重複預約，和官網購物車一樣）
+const activeLoanFor = (modelId) => state.loans.find((l) => l.modelId === Number(modelId) && !l.pickedUpAt && !l.cancelledAt && !l.returnedAt
+  && loanStage(l, HOURS[l.centerId], now()).pickup?.status !== 'expired');
 function watchList() {
   if (!watches().length) return '';
   return `<h2>到貨通知</h2>${watches().map((w) => {
@@ -231,7 +237,7 @@ function watchList() {
     const has = m && m.remaining > 0;
     return `<a class="card link tone-border-${has ? 'ok' : 'muted'}" href="#/borrow?step=plan&item=${encodeURIComponent(w.item)}">
       <div class="card-head"><h3>${esc(w.item)}</h3><span class="chip ${has ? 'ok' : 'muted'}">${has ? `有貨 ${m.remaining}` : '等待中'}</span></div>
-      <p class="line">${esc(w.name)}${has ? '・可以預約了' : '・有貨時會通知你'}</p></a>`;
+      <p class="line">${esc(w.name)}${has ? '・可以預約了' : w.official ? `・已在官網候補（${(w.centers || []).map((c) => CENTER_SHORT[c]).join('、')}）` : '・有貨時會通知你'}</p></a>`;
   }).join('')}`;
 }
 function checkWatches() {
@@ -260,7 +266,7 @@ function confirmDialog(title, text, okLabel, tone = 'danger') {
     const d = document.createElement('dialog');
     d.className = 'confirm-dialog';
     d.innerHTML = `<h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ''}
-      <div class="btn-row"><button class="btn" value="no">取消</button><button class="btn ${tone === 'danger' ? 'danger-fill' : 'primary'}" value="yes">${esc(okLabel)}</button></div>`;
+      <div class="btn-row"><button class="btn" value="no">返回</button><button class="btn ${tone === 'danger' ? 'danger-fill' : 'primary'}" value="yes">${esc(okLabel)}</button></div>`;
     const done = (ok) => { d.close(); d.remove(); resolve(ok); };
     d.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => done(b.value === 'yes')));
     d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
@@ -273,20 +279,30 @@ function confirmDialog(title, text, okLabel, tone = 'danger') {
 function reserve(_m, q) {
   const item = q.get('item') || '';
   const center = q.get('center');
+  const wait = q.get('wait') === '1';
   const model = stock?.categories.flatMap((c) => c.models).find((m) => m.id === Number(q.get('model')));
-  if (!model || !CENTER_SHORT[center]) {
+  if (!model || (!wait && !CENTER_SHORT[center])) {
     return { title: '填寫預約資料', html: `<p>${stock ? '找不到這個款式，可能已經更新了。' : '庫存載入中…'}</p><a class="btn" href="#/borrow?step=item">回去選輔具</a>` };
   }
+  if (!wait && activeLoanFor(model.id)) {
+    return { title: '填寫預約資料', html: `<div class="alert warn">你已經預約這款了，取貨或取消後才能再預約。</div><a class="btn primary" href="#/loan/${activeLoanFor(model.id).id}">查看預約</a>` };
+  }
   return reservePage({
-    esc, toast, confirmDialog, replaceTo, render, item, center, model,
-    centerName: shortName(centerById(center)),
-    pickup: (() => {
+    esc, toast, confirmDialog, replaceTo, render, item, center, model, wait,
+    centerShort: CENTER_SHORT,
+    addWatch(centers) {
+      state.watches = watches().filter((w) => w.modelId !== model.id);
+      watches().push({ modelId: model.id, item, name: `${model.name}${model.spec ? ` ${model.spec}` : ''}`, at: now().toISOString(), official: true, centers });
+      save();
+    },
+    centerName: wait ? '' : shortName(centerById(center)),
+    pickup: wait ? { status: 'wait', deadline: '' } : (() => {
       const p = pickupStatus(HOURS[center], now(), now());
       return { status: p.status, deadline: p.deadline ? `${fmtDate(p.deadline)} ${fmtTime(p.deadline)}` : '' };
     })(),
     addLoan({ item: name, model: modelName, centerId, official }) {
       const loan = {
-        id: newId(), item: name, model: modelName, centerId, official, viaApp: true,
+        id: newId(), item: name, model: modelName, modelId: model.id, centerId, official, viaApp: true,
         reservedAt: now().toISOString(), renewed: false, notified: [], checks: { pickup: [], return: [] },
       };
       state.loans.push(loan);
@@ -299,8 +315,9 @@ function reserve(_m, q) {
 // ---------- 頁面 ----------
 function home() {
   const loans = state.loans.map((l) => ({ l, st: loanStatus(l) }));
-  const active = loans.filter((x) => !x.l.returnedAt).sort((a, b) => TONE_RANK[a.st.tone] - TONE_RANK[b.st.tone]);
-  const returned = loans.filter((x) => x.l.returnedAt);
+  const done = (l) => l.returnedAt || l.cancelledAt;
+  const active = loans.filter((x) => !done(x.l)).sort((a, b) => TONE_RANK[a.st.tone] - TONE_RANK[b.st.tone]);
+  const returned = loans.filter((x) => done(x.l));
   const suspended = returned.find((x) => x.st.s.suspendedNow);
   return {
     title: '二手輔具借用小幫手',
@@ -319,9 +336,10 @@ function home() {
         ${st.s.stage === 'reserved' && st.s.pickup.status !== 'expired' ? `<h4>出門前檢查</h4>${checklist(l, 'pickup')}` : ''}
       </article>`).join('')}` : ''}
     ${watchList()}
-    ${returned.length ? `<details class="returned"><summary>已歸還（${returned.length}）</summary>${returned.map(({ l, st }) => `
-      <a class="card link" href="#/loan/${l.id}"><div class="card-head"><h3>${esc(l.item)}</h3></div><p class="line tone-${st.tone}">${st.text}</p></a>`).join('')}</details>` : ''}
-    <p class="footer-links"><a href="#/loan/new">用電話或官網預約了？手動記下</a></p>
+    ${returned.length ? `<details class="returned"><summary>過去的紀錄（${returned.length}）</summary>${returned.map(({ l, st }) => `
+      <a class="card link" href="#/loan/${l.id}"><div class="card-head"><h3>${esc(l.item)}</h3><span class="chip muted">${st.label}</span></div><p class="line tone-${st.tone}">${st.text}</p></a>`).join('')}</details>` : ''}
+    <p class="footer-links"><a href="#/official">查詢我在官網的預約、候補</a></p>
+    <p class="footer-links"><a href="#/loan/new">用電話預約了？手動記下</a></p>
     <p class="footer-links"><a href="#/sources">資料來源</a></p>
     `,
     mount() { runReminders(); checkWatches(); },
@@ -402,18 +420,20 @@ function borrow(_m, q) {
       ${m.spec ? `<p class="line">${esc(m.spec)}</p>` : ''}
       ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
       ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
-      <div class="btn-row ${m.remaining > 0 ? '' : 'stack'}">${m.remaining > 0
+      ${activeLoanFor(m.id) ? `<div class="btn-row"><a class="btn" href="#/loan/${activeLoanFor(m.id).id}">你已預約這款，查看</a></div>` : `<div class="btn-row ${m.remaining > 0 ? '' : 'stack'}">${m.remaining > 0
         ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<a class="btn primary" href="#/reserve?center=${k}&model=${m.id}&item=${encodeURIComponent(item)}">在${CENTER_SHORT[k]}預約</a>`).join('')
           || `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}">去官網預約這款</button>`
         : `${watches().some((w) => w.modelId === m.id)
             ? `<button class="btn" data-act="unwatch" data-model="${m.id}">${ICON.bell} 已設定通知（取消）</button>`
             : `<button class="btn primary" data-act="watch" data-model="${m.id}" data-item="${esc(item)}">${ICON.bell} 有貨時通知我</button>`}
-           <button class="btn ghost" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">到官網排隊候補</button>`}</div>
+           ${watches().some((w) => w.modelId === m.id && w.official)
+              ? '<p class="small">已在官網登記候補</p>'
+              : `<a class="btn ghost" href="#/reserve?wait=1&model=${m.id}&item=${encodeURIComponent(item)}">登記候補（排隊）</a>`}`}</div>`}
     </article>`;
     return {
       title: `借${item}`,
       html: `${stockNote()}
-      ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了。按「有貨時通知我」，有貨時台北通會通知你；想排隊候補請到官網登記</div>'}
+      ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了。可以「登記候補」排隊，或按「有貨時通知我」</div>'}
       <h2>選款式</h2>${models.map(modelCard).join('')}`,
     };
   }
@@ -543,6 +563,10 @@ function newLoan(_m, q) {
 function timeline(loan, st) {
   const rows = [];
   rows.push(['預約', fmtDate(loan.reservedAt) + ' ' + fmtTime(loan.reservedAt), true]);
+  if (loan.cancelledAt) {
+    rows.push(['取消', fmtDate(loan.cancelledAt) + ' ' + fmtTime(loan.cancelledAt), true]);
+    return `<ol class="timeline">${rows.map(([k, v, done]) => `<li class="${done ? 'done' : ''}"><span>${k}</span><strong>${v}</strong></li>`).join('')}</ol>`;
+  }
   if (st.s.stage === 'reserved') {
     rows.push(['最晚取貨', st.s.pickup.deadline ? fmtSmart(st.s.pickup.deadline) : '沒有開館時段', false]);
   }
@@ -559,7 +583,9 @@ function loanDetail(m) {
   const st = loanStatus(loan);
   const s = st.s;
   let body = '';
-  if (s.stage === 'reserved') {
+  if (s.stage === 'cancelled') {
+    body += `<div class="alert info">${fmtDate(loan.cancelledAt)} ${fmtTime(loan.cancelledAt)} 已取消預約${loan.cancelNote ? `（${esc(loan.cancelNote)}）` : ''}</div>`;
+  } else if (s.stage === 'reserved') {
     const p = s.pickup;
     // 下一步：預約完最常見的問題是「然後呢？」，直接講清楚
     if (p.status !== 'impossible' && p.status !== 'expired') {
@@ -612,10 +638,12 @@ function loanDetail(m) {
       <p class="status tone-${st.tone}">${st.text}</p></section>
       ${timeline(loan, st)}
       ${body}
-      ${(loan.official || loan.viaApp) && s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">請到官網「服務預約查詢與取消」取消，讓給下一位</p>
-        <div class="btn-row"><button class="btn" data-act="link" data-url="${LINKS.query}">到官網取消預約</button></div></div>` : ''}
+      ${s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">取消後會讓給下一位，紀錄會保留在「過去的紀錄」</p>
+        <div class="btn-row"><button class="btn danger-outline" data-act="cancelLoan" data-loan="${loan.id}">取消預約</button></div></div>` : ''}
       <a class="btn primary big" href="#/">回首頁</a>
-      <div class="danger-zone"><button class="btn ghost" data-act="delete" data-loan="${loan.id}">刪除這筆紀錄</button></div>`,
+      ${loan.viaApp ? '' : `<details class="more danger-zone"><summary>其他</summary>
+        <p class="small">這筆是手動記的。記錯了可以刪除，不會影響官網或中心的預約。</p>
+        <button class="btn ghost" data-act="delete" data-loan="${loan.id}">刪除這筆紀錄</button></details>`}`,
     mount() {
       const pf = document.getElementById('pickup-form');
       if (pf) {
@@ -646,6 +674,67 @@ function loanDetail(m) {
         loan.returnedAt = fromDateInput(tf.returnedAt.value).toISOString();
         save(); render();
       });
+    },
+  };
+}
+
+// ---------- 查詢官網的預約、候補（官網「服務預約查詢與取消」） ----------
+const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  .then((r) => r.json()).catch(() => ({ errors: ['連不上伺服器，請稍後再試'] }));
+let officialWho = null; // 只留在記憶體，不存
+function renderOfficial(q) {
+  const box = document.getElementById('q-result');
+  if (!box) return;
+  if (q.errors) { box.innerHTML = `<div class="alert danger">${esc(q.errors[0])}</div>`; return; }
+  const today = toDateInput(now());
+  const rents = q.rents || [];
+  const waits = q.waits || [];
+  if (!rents.length && !waits.length) { box.innerHTML = '<p>官網查不到紀錄。請確認姓名、身分證字號和預約時填的電話。</p>'; return; }
+  box.innerHTML = `${waits.length ? `<h2>候補</h2>${waits.map((w, i) => `<div class="card">
+      <div class="card-head"><h3>${esc(w.item.split(' / ')[0])}</h3><span class="chip ${/取消/.test(w.status) ? 'muted' : 'info'}">${esc(w.status)}</span></div>
+      <p class="line">${esc(w.item.split(' / ').slice(1).join(' '))}</p>
+      <p class="small">${w.date ? `${fmtDate(fromDateInput(w.date))} 登記` : ''}${w.seq ? `・候補第 ${esc(w.seq)} 位` : ''}</p>
+      ${w.cancelUrl ? `<div class="btn-row"><button class="btn danger-outline" data-act="officialCancel" data-wait="${i}">取消候補</button></div>` : ''}</div>`).join('')}` : ''}
+    ${rents.length ? `<h2>預約</h2>${rents.map((r) => {
+    const live = !r.cancelled && r.items.some((x) => x.deadline >= today);
+    return `<div class="card">
+      <div class="card-head"><h3>${esc(r.center.replace('臺北市', ''))}</h3><span class="chip ${r.cancelled ? 'muted' : live ? 'info' : 'muted'}">${r.cancelled ? '已取消' : live ? '等待取貨' : '已過期限'}</span></div>
+      <p class="small">${r.date ? `${fmtDate(fromDateInput(r.date))} 預約` : ''}・編號 ${esc(r.no)}</p>
+      <ul class="plain">${r.items.map((x, i) => `<li><strong>${esc(x.item)}</strong> ${esc(x.spec)}${x.deadline && !r.cancelled ? `<br><span class="small">領取期限 ${fmtDate(fromDateInput(x.deadline))}</span>` : ''}
+        ${x.cancelUrl ? `<div class="btn-row"><button class="btn danger-outline" data-act="officialCancel" data-no="${esc(r.no)}" data-index="${i}">取消預約</button></div>` : ''}</li>`).join('')}</ul></div>`;
+  }).join('')}` : ''}`;
+}
+async function runOfficialQuery() {
+  const box = document.getElementById('q-result');
+  if (!box || !officialWho) return;
+  box.innerHTML = '<p>查詢中…</p>';
+  renderOfficial(await postJson('/api/query', officialWho));
+}
+function officialPage() {
+  return {
+    title: '官網預約紀錄',
+    html: `<p class="small">用預約時填的資料，查臺北市輔具資源整合資訊網上的預約和候補，也可以在這裡取消</p>
+      <form id="q-form" class="form card">
+        <label>姓名<input name="name" autocomplete="name"></label>
+        <label>身分證字號<input name="idno" autocapitalize="characters"></label>
+        <label>電話（預約時填的）<input name="phone" type="tel"></label>
+        <button class="btn primary big" type="submit">查詢</button>
+      </form>
+      <div id="q-result"></div>`,
+    async mount() {
+      const f = document.getElementById('q-form');
+      f.addEventListener('submit', (e) => {
+        e.preventDefault();
+        officialWho = { name: f.name.value.trim(), idno: f.idno.value.trim().toUpperCase(), phone: f.phone.value.trim() };
+        runOfficialQuery();
+      });
+      // 有台北通帳號資料就直接帶入並查詢
+      const who = officialWho || await accountWho();
+      if (who && document.getElementById('q-form') === f) {
+        f.name.value = who.name; f.idno.value = who.idno; f.phone.value = who.phone;
+        officialWho = who;
+        runOfficialQuery();
+      }
     },
   };
 }
@@ -712,6 +801,7 @@ function seedDemo() {
 function runReminders() {
   let changed = false;
   for (const loan of state.loans) {
+    if (loan.cancelledAt) continue;
     const r = reminderFor(loan, HOURS[loan.centerId], now(), fmtSmart);
     if (!r) continue;
     loan.notified = loan.notified || [];
@@ -788,6 +878,41 @@ const actions = {
     if (!el.checked && at >= 0) arr.splice(at, 1);
     save();
   },
+  // 取消預約：不刪紀錄，標成「已取消」收進過去的紀錄。真的送到官網的，會在官網一起取消。
+  async cancelLoan(el) {
+    const loan = state.loans.find((l) => l.id === el.dataset.loan);
+    if (!loan) return;
+    const text = loan.official ? '會在官網取消，讓給下一位'
+      : loan.viaApp ? '演練模式的預約，只會在這支手機標示取消'
+        : '這筆是手動記的，請記得也打電話通知中心';
+    if (!await confirmDialog(`確定要取消「${loan.item}」的預約嗎？`, text, '取消預約')) return;
+    if (loan.official) {
+      const who = await accountWho();
+      if (!who) { toast('拿不到台北通帳號資料，請在這頁輸入後查詢、取消', 5000); location.hash = '#/official'; return; }
+      el.disabled = true; el.textContent = '取消中…';
+      const q = await postJson('/api/query', who);
+      const short = CENTER_SHORT[loan.centerId];
+      const r = (q.rents || []).find((x) => !x.cancelled && x.center.includes(short) && x.date === toDateInput(loan.reservedAt)
+        && x.items.some((i) => i.item === loan.item));
+      if (!r) { toast('官網找不到這筆，請在這頁確認', 5000); location.hash = '#/official'; return; }
+      const res = await postJson('/api/cancel', { live: true, who, no: r.no, index: r.items.findIndex((i) => i.item === loan.item) });
+      if (!res.ok) { toast(res.message || res.errors?.[0] || '取消失敗', 6000); render(); return; }
+    }
+    loan.cancelledAt = now().toISOString();
+    loan.cancelNote = loan.official ? '已在官網取消' : loan.viaApp ? '演練' : '';
+    save(); toast('已取消預約'); render();
+  },
+  async officialCancel(el) {
+    if (!officialWho) return;
+    const wait = el.dataset.wait != null;
+    if (!await confirmDialog(wait ? '確定取消這筆候補？' : '確定取消這筆預約？', '會在官網取消，讓給下一位', '取消')) return;
+    el.disabled = true; el.textContent = '取消中…';
+    const res = await postJson('/api/cancel', wait
+      ? { live: true, who: officialWho, wait: Number(el.dataset.wait) }
+      : { live: true, who: officialWho, no: el.dataset.no, index: Number(el.dataset.index) });
+    toast(res.dryRun ? '演練模式：沒有真的取消' : (res.message || res.errors?.[0] || ''), 5000);
+    runOfficialQuery();
+  },
   async delete(el) {
     const loan = state.loans.find((l) => l.id === el.dataset.loan);
     const note = (loan?.official || loan?.viaApp) && !loan.pickedUpAt ? '只會刪除這支手機上的紀錄，官網的預約不會取消' : '刪除後無法復原';
@@ -826,6 +951,7 @@ const routes = [
   [/^#\/sources$/, sources],
   [/^#\/demo$/, demo],
   [/^#\/reserve$/, reserve],
+  [/^#\/official$/, officialPage],
 ];
 
 let lastHash = null;
@@ -860,5 +986,5 @@ render();
 setInterval(() => {
   const active = document.activeElement;
   if (active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName)) return;
-  if (!document.getElementById('loan-form') && !document.getElementById('demo-form')) render();
+  if (!busyForm()) render();
 }, 60000);
