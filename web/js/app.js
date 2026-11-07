@@ -318,6 +318,7 @@ function reserve(_m, q) {
   }
   return reservePage({
     esc, toast, confirmDialog, replaceTo, render, item, center, model, wait,
+    catId: stock.categories.find((c) => c.models.includes(model))?.id,
     centerShort: CENTER_SHORT,
     addWatch(centers) {
       state.watches = watches().filter((w) => w.modelId !== model.id);

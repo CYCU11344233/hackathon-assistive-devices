@@ -67,9 +67,15 @@ export function reservePage(ctx) {
     title: wait ? '登記候補' : '填寫預約資料',
     html: `<div class="card summary">
         <p class="small">${wait ? '登記候補' : '預約'} ${config.liveReserve ? '<span class="chip danger">正式送出</span>' : '<span class="chip muted">演練模式</span>'}</p>
-        <h3>${esc(item)}・${esc(model.name)}${model.spec ? `（${esc(model.spec)}）` : ''}</h3>
-        ${wait ? `<p class="line">目前沒有庫存，依登記順序排隊；配對成功後請留意中心通知（目前 ${model.waiting} 人排隊）</p>` : `<p>${esc(ctx.centerName)}</p>
-        <p class="line ${cannotPick ? 'tone-danger' : ''}">${esc(pickupLine)}</p>`}
+        <div class="model-top">
+          <span class="model-img"><img src="img/models/${model.id}.jpg" alt="" onerror="this.onerror=null;this.src='img/items/${ctx.catId}.jpg'"></span>
+          <div class="model-info">
+            <h3>${esc(item)}</h3>
+            <p class="model-spec">${esc(model.name)}${model.spec ? `<br>${esc(model.spec)}` : ''}</p>
+            ${wait ? `<span class="chip warn">目前 ${model.waiting} 人排隊</span>` : `<span class="chip info">${esc(ctx.centerName)}</span>`}
+          </div>
+        </div>
+        ${wait ? '<p class="line">依登記順序排隊，配對成功後請留意中心通知。</p>' : `<p class="line ${cannotPick ? 'tone-danger' : ''}">${esc(pickupLine)}</p>`}
       </div>
       <div id="ui-note">${userInfo ? '<div class="alert ok">已帶入台北通帳號資料，請確認</div>' : ''}</div>
       <div id="errors"></div>

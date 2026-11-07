@@ -290,3 +290,7 @@ details.danger-zone .btn { margin-top: 8px; }
 .focus-tag { margin: -4px 0 8px; color: var(--primary); font-weight: 700; font-size: .95rem; }
 .btn-row.stack .small { margin: 0; }
 .loading { color: var(--muted); padding: 24px 0; text-align: center; }
+/* 說明文字左右對齊 */
+.model details.more p { text-align: justify; text-justify: inter-character; }
+.summary .model-top { margin-top: 8px; }
+.summary .line { margin-top: 12px; }
