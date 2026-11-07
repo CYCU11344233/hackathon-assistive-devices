@@ -58,6 +58,7 @@ export function reservePage(ctx) {
         <p class="small">預約</p>
         <h3>${esc(item)}・${esc(model.name)}${model.spec ? `（${esc(model.spec)}）` : ''}</h3>
         <p>${esc(ctx.centerName)}</p>
+        <p class="line tone-${ctx.pickup.tone}">現在預約：${esc(ctx.pickup.text)}${ctx.pickup.tone === 'danger' ? '，建議換中心或先打電話' : ''}</p>
       </div>
       ${config.liveReserve ? '<div class="alert danger">會真的送到官網預約</div>' : '<div class="alert info">演練模式：會檢查資料，但不會真的送到官網</div>'}
       <div id="ui-note">${userInfo ? '<div class="alert ok">已帶入台北通帳號資料，請確認</div>' : ''}</div>
@@ -136,7 +137,7 @@ export function reservePage(ctx) {
           userBirth: val('userBirth'),
           handicap: checked('handicap'), lcms: checked('lcms'), selective: checked('selective'),
         };
-        const ok = await ctx.confirmDialog(`確定在${ctx.centerName}預約？`, `${item}・${model.name}`, '送出');
+        const ok = await ctx.confirmDialog(`確定在${ctx.centerName}預約？`, `${item}・${model.name}`, '送出', 'primary');
         if (!ok) return;
         const btn = f.querySelector('button[type=submit]');
         btn.disabled = true; btn.textContent = '送出中…';

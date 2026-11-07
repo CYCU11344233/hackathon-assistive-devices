@@ -215,12 +215,12 @@ function stockNote() {
 }
 
 // 畫面中間跳出的確認視窗（用 <dialog>），回傳 Promise<boolean>
-function confirmDialog(title, text, okLabel) {
+function confirmDialog(title, text, okLabel, tone = 'danger') {
   return new Promise((resolve) => {
     const d = document.createElement('dialog');
     d.className = 'confirm-dialog';
     d.innerHTML = `<h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ''}
-      <div class="btn-row"><button class="btn" value="no">取消</button><button class="btn danger-fill" value="yes">${esc(okLabel)}</button></div>`;
+      <div class="btn-row"><button class="btn" value="no">取消</button><button class="btn ${tone === 'danger' ? 'danger-fill' : 'primary'}" value="yes">${esc(okLabel)}</button></div>`;
     const done = (ok) => { d.close(); d.remove(); resolve(ok); };
     d.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => done(b.value === 'yes')));
     d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
@@ -240,6 +240,7 @@ function reserve(_m, q) {
   return reservePage({
     esc, toast, confirmDialog, replaceTo, render, item, center, model,
     centerName: shortName(centerById(center)),
+    pickup: pickupText(pickupStatus(HOURS[center], now(), now())),
     addLoan({ item: name, model: modelName, centerId, official }) {
       const loan = {
         id: newId(), item: name, model: modelName, centerId, official,
@@ -328,7 +329,7 @@ function borrow(_m, q) {
     const others = all.filter((it) => !rec.has(it));
     return {
       title: '想借什麼？',
-      html: `<details class="needs" ${picked.length ? 'open' : ''}><summary>🤔 不確定借哪種？點選需求</summary>
+      html: `<details class="needs" ${picked.length || q.get('open') ? 'open' : ''}><summary>🤔 不確定借哪種？點選需求</summary>
         <div class="chips">${NEEDS.map((n) => `<button class="need-chip ${ids.includes(n.id) ? 'on' : ''}" data-act="need" data-id="${n.id}">${esc(n.label)}</button>`).join('')}</div>
         ${picked.length ? '<p class="small">只是建議，不確定可先打電話問輔具中心</p>' : ''}
       </details>
@@ -362,10 +363,7 @@ function borrow(_m, q) {
       title: `借${item}`,
       html: `${stockNote()}
       ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了，可以登記到貨通知排隊，或打電話問中心</div>'}
-      <h2>選款式</h2>${models.map(modelCard).join('')}
-      <h2>預約好了？</h2>
-      <div class="btn-row"><a class="btn big" href="#/loan/new?item=${encodeURIComponent(item)}">📝 記下預約</a></div>
-      <h2>輔具中心</h2>${locateButton()}${sortedCenters().map((x) => centerCard(x)).join('')}`,
+      <h2>選款式</h2>${models.map(modelCard).join('')}`,
     };
   }
   if (step === 'plan') {
@@ -392,12 +390,20 @@ function borrow(_m, q) {
   };
 }
 
+let autoLocated = false;
 function centers() {
   return {
     title: '輔具中心',
     html: `<p class="small">已排除國定假日；臨時休館請以中心公告為準</p>
-    ${locateButton()}
+    ${myLoc ? '<p class="small">📍 已依離你的距離排序</p>' : locateButton()}
     ${sortedCenters().map((x) => centerCard(x)).join('')}`,
+    mount() {
+      // 打開就自動定位一次；拒絕或失敗時保留「依距離排序」按鈕可以再試
+      if (myLoc || autoLocated) return;
+      autoLocated = true;
+      const btn = document.querySelector('[data-act=locate]');
+      if (btn) actions.locate(btn);
+    },
   };
 }
 
@@ -689,7 +695,8 @@ const actions = {
     const q = new URLSearchParams((location.hash.split('?')[1]) || '');
     const ids = new Set((q.get('needs') || '').split(',').filter(Boolean));
     if (ids.has(el.dataset.id)) ids.delete(el.dataset.id); else ids.add(el.dataset.id);
-    replaceTo(`#/borrow?step=item${ids.size ? `&needs=${[...ids].join(',')}` : ''}`);
+    // open=1：取消最後一個需求時，區塊仍保持展開
+    replaceTo(`#/borrow?step=item&open=1${ids.size ? `&needs=${[...ids].join(',')}` : ''}`);
   },
   async locate(el) {
     el.disabled = true;
