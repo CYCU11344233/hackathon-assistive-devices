@@ -174,3 +174,13 @@ a { color: var(--primary); }
 /* 台北通內只顯示示範時間標籤 */
 .demo-bar { display: flex; justify-content: flex-end; padding: 8px 16px 0; max-width: 640px; margin: 0 auto; }
 .home-link { font-weight: 700; color: var(--text); text-decoration: none; white-space: nowrap; }
+/* 用 <button> 做的大按鈕（例如直接開官網）要和連結長得一樣 */
+button.big-btn { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+/* 預約日期和時間並排 */
+.field-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+/* 「已完成借用」「已歸還」：先按按鈕，再展開確認表單 */
+.confirm { margin: 16px 0; }
+.confirm > summary { list-style: none; }
+.confirm > summary::-webkit-details-marker { display: none; }
+.confirm[open] > summary { opacity: .6; }
+.confirm .form { margin-top: 10px; }

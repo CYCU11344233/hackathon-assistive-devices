@@ -1,8 +1,8 @@
 import {
   parseHours, openStatus, pickupStatus, loanStage, reminderFor, defaultDueDate,
-  addMonths, addDays, diffDays, startOfDay, WEEKDAY_NAMES,
+  addMonths, addDays, diffDays, startOfDay, intervalsOnDate, WEEKDAY_NAMES,
 } from './rules.js';
-import { CENTERS, ITEMS, LINKS, CHECKLISTS } from './data.js';
+import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS } from './data.js';
 import * as bridge from './bridge.js';
 
 const HOURS = Object.fromEntries(CENTERS.map((c) => [c.id, parseHours(c.hoursText)]));
@@ -27,7 +27,8 @@ let myLoc = null;
 // ---------- 格式 ----------
 const pad = (n) => String(n).padStart(2, '0');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtDate = (d) => { d = new Date(d); return `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAY_NAMES[d.getDay()]}）`; };
+// 所有日期都帶年份，避免跨年時看錯
+const fmtDate = (d) => { d = new Date(d); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${WEEKDAY_NAMES[d.getDay()]}）`; };
 const fmtTime = (d) => { d = new Date(d); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 function dayWord(d) {
   const n = diffDays(now(), d);
@@ -64,6 +65,27 @@ function km(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 const newId = () => Math.random().toString(36).slice(2, 10);
+
+// 可選的預約時間：前後 3 天內、該中心開館時段內，每 30 分鐘一格（24 小時制）
+const SLOT_MIN = 30;
+function reservationSlots(hours, t) {
+  const out = [];
+  for (let d = -3; d <= 3; d++) {
+    for (const iv of intervalsOnDate(hours, addDays(startOfDay(t), d))) {
+      for (let x = iv.start.getTime(); x < iv.end.getTime(); x += SLOT_MIN * 60000) out.push(new Date(x));
+    }
+  }
+  return out;
+}
+// 預設選離現在最近的時段，一樣近時選已經過去的那個
+function nearestSlot(slots, t) {
+  let best = null;
+  for (const s of slots) {
+    const gap = Math.abs(s - t) + (s > t ? 1 : 0);
+    if (!best || gap < best.gap) best = { s, gap };
+  }
+  return best?.s ?? null;
+}
 
 // ---------- 狀態文字 ----------
 function pickupText(p) {
@@ -155,7 +177,7 @@ function home() {
   const returned = loans.filter((x) => x.l.returnedAt);
   const suspended = returned.find((x) => x.st.s.suspendedNow);
   return {
-    title: '輔具借用小幫手',
+    title: '二手輔具借用小幫手',
     html: `
     ${suspended ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(suspended.st.s.suspendedUntil)}</strong> 前不能再借。</div>` : ''}
     ${active.length ? `<h2>我的借用</h2>${active.map(({ l, st }) => `
@@ -164,7 +186,7 @@ function home() {
         <p class="line tone-${st.tone}">${st.text}</p>
       </a>`).join('')}` : ''}
     <div class="big-actions">
-      <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借輔具</strong></div></a>
+      <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具</strong></div></a>
       <a class="big-btn" href="#/loan/new"><span>📝</span><div><strong>記下預約</strong></div></a>
       <a class="big-btn" href="#/centers"><span>🏥</span><div><strong>輔具中心</strong></div></a>
     </div>
@@ -182,21 +204,52 @@ function borrow(_m, q) {
   if (step === 'out') {
     return {
       title: '借用資格',
-      html: `<div class="alert warn">只借給<strong>設籍臺北市</strong>的市民。</div>
-      <div class="card"><h3>可以打長照專線</h3>
-        <div class="btn-row"><button class="btn primary" data-act="call" data-phone="1966">📞 撥打 1966</button>
-        <button class="btn" data-act="link" data-url="${LINKS.chooseCounty}">官方說明</button></div>
-      </div>`,
+      html: `<div class="alert warn">請至「輔具資源入口網」查詢各縣市</div>
+      <div class="btn-row"><button class="btn primary big" data-act="link" data-url="${LINKS.portal}">開啟輔具資源入口網</button></div>
+      <p class="small">有長照需求也可以撥長照專線</p>
+      <div class="btn-row"><button class="btn" data-act="call" data-phone="1966">📞 撥打 1966</button></div>`,
     };
   }
   if (step === 'item') {
     return {
       title: '想借什麼？',
-      html: `
-      <div class="item-grid">${ITEMS.map((it) => `<a class="item" href="#/borrow?step=plan&item=${encodeURIComponent(it)}">${esc(it)}</a>`).join('')}
-        <a class="item" href="#/borrow?step=stair">爬梯機</a>
-        <a class="item" href="#/borrow?step=plan&item=${encodeURIComponent('其他輔具')}">其他</a>
+      html: `<div class="big-actions">
+        <button class="big-btn" data-act="link" data-url="${LINKS.reserve}"><span>✅</span><div><strong>我知道要借哪種輔具</strong><small>直接到官網預約</small></div></button>
+        <a class="big-btn" href="#/borrow?step=need"><span>🤔</span><div><strong>我不確定要借哪種</strong><small>回答幾個問題，幫你找</small></div></a>
       </div>`,
+    };
+  }
+  if (step === 'need') {
+    return {
+      title: '需要哪些幫忙？',
+      html: `<h2>使用的人需要哪些幫忙？</h2><p class="small">可以複選</p>
+      <form id="need-form" class="form">
+        ${NEEDS.map((n) => `<label class="radio"><input type="checkbox" name="need" value="${n.id}"> ${esc(n.label)}</label>`).join('')}
+        <button class="btn primary big" type="submit">看建議</button>
+      </form>`,
+      mount() {
+        const f = document.getElementById('need-form');
+        f.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const picked = [...f.querySelectorAll('input[name=need]:checked')].map((x) => x.value);
+          if (!picked.length) { toast('請至少選一項'); return; }
+          location.hash = `#/borrow?step=suggest&needs=${picked.join(',')}`;
+        });
+      },
+    };
+  }
+  if (step === 'suggest') {
+    const ids = (q.get('needs') || '').split(',');
+    const picked = NEEDS.filter((n) => ids.includes(n.id));
+    const items = [...new Set(picked.flatMap((n) => n.items))];
+    return {
+      title: '建議的輔具',
+      html: `<h2>可以考慮這些</h2>
+      <div class="item-grid">${items.map((it) => it === '爬梯機'
+        ? '<a class="item" href="#/borrow?step=stair">爬梯機</a>'
+        : `<a class="item" href="#/borrow?step=plan&item=${encodeURIComponent(it)}">${esc(it)}</a>`).join('')}</div>
+      <p class="small">只是建議，不確定的話先打電話問輔具中心</p>
+      <div class="btn-row"><a class="btn" href="#/centers">📞 輔具中心電話</a></div>`,
     };
   }
   if (step === 'stair') {
@@ -242,7 +295,6 @@ function centers() {
 function newLoan(_m, q) {
   const item = q.get('item') || '';
   const isKnown = ITEMS.includes(item);
-  const t = now();
   return {
     title: '記下預約',
     html: `<form id="loan-form" class="form">
@@ -254,54 +306,65 @@ function newLoan(_m, q) {
       <fieldset><legend>中心</legend>${CENTERS.map((c, i) => `
         <label class="radio"><input type="radio" name="center" value="${c.id}" ${i === 0 ? 'checked' : ''}> ${esc(shortName(c))}</label>`).join('')}
       </fieldset>
-      <label>預約時間<input type="datetime-local" name="reservedAt" value="${toDTInput(t)}" required></label>
-      <div id="pickup-preview" class="alert info"></div>
-      <label class="radio"><input type="checkbox" name="picked"> 我已經取貨了</label>
-      <div class="picked-fields" hidden>
-        <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(t)}"></label>
-        <label>歸還期限（看借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(t))}"></label>
+      <div class="field-row">
+        <label>預約日期<select name="resDate"></select></label>
+        <label>時間<select name="resTime"></select></label>
       </div>
-      <button class="btn primary big" type="submit">儲存</button>
+      <p class="small">只能選該中心的開館時間</p>
+      <div id="pickup-preview" class="alert info"></div>
+      <button class="btn primary big" type="submit">儲存預約</button>
     </form>`,
     mount() {
       const f = document.getElementById('loan-form');
-      let dueTouched = false;
+      let slots = [];
+      // 依中心重建日期、時間選單，盡量保留原本選的時間
+      const rebuild = () => {
+        const keep = f.resTime.value ? Number(f.resTime.value) : null;
+        slots = reservationSlots(HOURS[f.center.value], now());
+        const days = [...new Set(slots.map((d) => toDateInput(d)))];
+        const pick = slots.find((d) => d.getTime() === keep) || nearestSlot(slots, now());
+        f.resDate.innerHTML = days.map((d) => `<option value="${d}" ${pick && toDateInput(pick) === d ? 'selected' : ''}>${fmtDate(fromDateInput(d))}</option>`).join('');
+        fillTimes(pick);
+      };
+      const fillTimes = (pick) => {
+        const day = f.resDate.value;
+        const list = slots.filter((d) => toDateInput(d) === day);
+        const sel = pick && toDateInput(pick) === day ? pick.getTime() : list[0]?.getTime();
+        f.resTime.innerHTML = list.map((d) => `<option value="${d.getTime()}" ${d.getTime() === sel ? 'selected' : ''}>${fmtTime(d)}</option>`).join('');
+      };
       const preview = () => {
-        const c = f.center.value;
-        const r = f.reservedAt.value ? fromDTInput(f.reservedAt.value) : now();
-        const p = pickupStatus(HOURS[c], r, now());
-        const pt = pickupText(p);
         const box = document.getElementById('pickup-preview');
+        f.querySelector('.other-item').hidden = f.item.value !== '__other';
+        if (!f.resTime.value) {
+          box.className = 'alert warn';
+          box.textContent = '這幾天這個中心沒有開館';
+          return;
+        }
+        const p = pickupStatus(HOURS[f.center.value], new Date(Number(f.resTime.value)), now());
+        const pt = pickupText(p);
         box.className = `alert ${pt.tone === 'muted' ? 'warn' : pt.tone}`;
         box.innerHTML = `${pt.text}${p.status === 'impossible' ? '，建議換中心' : ''}`;
-        f.querySelector('.other-item').hidden = f.item.value !== '__other';
-        f.querySelector('.picked-fields').hidden = !f.picked.checked;
       };
-      f.addEventListener('input', (e) => {
-        if (e.target.name === 'dueDate') dueTouched = true;
-        if (e.target.name === 'pickedUpAt' && !dueTouched && f.pickedUpAt.value) {
-          f.dueDate.value = toDateInput(defaultDueDate(fromDateInput(f.pickedUpAt.value)));
-        }
+      f.addEventListener('change', (e) => {
+        if (e.target.name === 'center') rebuild();
+        if (e.target.name === 'resDate') fillTimes(null);
         preview();
       });
-      f.addEventListener('change', preview);
+      rebuild();
       preview();
       f.addEventListener('submit', (e) => {
         e.preventDefault();
+        if (!f.resTime.value) { toast('請選開館時間'); return; }
         const name = f.item.value === '__other' ? (f.itemOther.value.trim() || '輔具') : f.item.value;
         const loan = {
           id: newId(),
           item: name,
           centerId: f.center.value,
-          reservedAt: fromDTInput(f.reservedAt.value).toISOString(),
+          reservedAt: new Date(Number(f.resTime.value)).toISOString(),
           renewed: false,
           notified: [],
           checks: { pickup: [], return: [] },
         };
-        if (f.picked.checked && f.pickedUpAt.value && f.dueDate.value) {
-          loan.pickedUpAt = fromDateInput(f.pickedUpAt.value).toISOString();
-          loan.dueDate = fromDateInput(f.dueDate.value).toISOString();
-        }
         state.loans.push(loan);
         save();
         replaceTo(`#/loan/${loan.id}`);
@@ -342,10 +405,11 @@ function loanDetail(m) {
     }
     body += `<div class="card"><h3>出門前檢查</h3>${checklist(loan, 'pickup')}</div>
       <div class="card"><h3>${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>
-      <form class="card form" id="pickup-form"><h3>我已經取貨了</h3>
-        <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}"></label>
-        <label>歸還期限（看借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}"></label>
-        <button class="btn primary" type="submit">儲存</button></form>`;
+      <details class="confirm"><summary class="btn primary big">✅ 已完成借用（已取貨）</summary>
+        <form class="card form" id="pickup-form">
+          <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}"></label>
+          <label>歸還期限（看借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}"></label>
+          <button class="btn primary" type="submit">確認已完成借用</button></form></details>`;
   } else if (s.stage === 'borrowed') {
     body += `<div class="days tone-${st.tone}"><strong>${s.daysLeft < 0 ? `逾期 ${-s.daysLeft}` : s.daysLeft}</strong><span>${s.daysLeft < 0 ? '天' : '天後到期'}</span></div>`;
     if (s.level === 'overdue') {
@@ -359,9 +423,10 @@ function loanDetail(m) {
           <label>新的歸還期限<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
           <button class="btn" type="submit">已續借</button></form>`
       : '<div class="alert info">已續借過，到期請歸還。</div>';
-    body += `<form class="card form" id="return-form"><h3>我已經歸還了</h3>
-        <label>歸還日<input type="date" name="returnedAt" value="${toDateInput(now())}"></label>
-        <button class="btn primary" type="submit">儲存</button></form>
+    body += `<details class="confirm"><summary class="btn primary big">✅ 已歸還</summary>
+        <form class="card form" id="return-form">
+          <label>歸還日<input type="date" name="returnedAt" value="${toDateInput(now())}"></label>
+          <button class="btn primary" type="submit">確認已歸還</button></form></details>
       <div class="card"><h3>${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>`;
   } else {
     body += s.late

@@ -57,6 +57,8 @@ export const LINKS = {
   stairEval: 'https://tpap.taipei/app37/otherReserveView/where',
   dataset: 'https://data.gov.tw/dataset/135817',
   ltc: '1966',
+  // 衛生福利部社會及家庭署「輔具資源入口網」，可查各縣市輔具中心
+  portal: 'https://newrepat.sfaa.gov.tw/',
 };
 
 export const CHECKLISTS = {
@@ -72,3 +74,15 @@ export const CHECKLISTS = {
     '有損壞先打電話給中心',
   ],
 };
+
+// 「我不確定要借哪種」的需求問題：每個需求對應須知列出的可借項目（爬梯機需先評估）。
+// 只是初步建議，畫面上會提醒使用者打電話問輔具中心。
+export const NEEDS = [
+  { id: 'walk', label: '走路不穩，需要扶著', items: ['拐杖', '助行器', '助步車'] },
+  { id: 'wheel', label: '沒辦法走路或走不遠', items: ['輪椅', '輪椅座墊'] },
+  { id: 'bath', label: '洗澡需要坐著', items: ['洗澡椅'] },
+  { id: 'toilet', label: '上廁所有困難', items: ['便盆椅'] },
+  { id: 'bed', label: '大部分時間躺在床上', items: ['居家用照顧床', '氣墊床'] },
+  { id: 'transfer', label: '從床移到椅子很吃力', items: ['移位輔具'] },
+  { id: 'stairs', label: '要上下樓梯，但走不了', items: ['爬梯機'] },
+];
