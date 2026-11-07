@@ -15,11 +15,11 @@
 不需要安裝套件，只需要 Node.js 18 以上。
 
 ```bash
-node serve.mjs        # http://localhost:5173，監聽 0.0.0.0
+node serve.mjs        # http://localhost:5173，監聽 0.0.0.0；含 /api/stock 庫存 API
 node --test           # 規則引擎測試（12 項）
 ```
 
-網站是純靜態檔，都在 `web/` 資料夾，也可以直接放到 GitHub Pages 這類免費空間。
+網頁在 `web/` 資料夾。即時庫存需要 `serve.mjs`（它負責爬官網，瀏覽器不能直接跨網域抓）；只放靜態空間（例如 GitHub Pages）時，App 會自動退回沒有庫存資訊的版本。
 
 ## 結構
 | 檔案 | 內容 |
@@ -58,6 +58,7 @@ node --test           # 規則引擎測試（12 項）
 ## 資料來源
 - [臺北市二手輔具資源提供單位](https://data.gov.tw/dataset/135817)（臺北市政府社會局，政府資料開放授權條款第 1 版）
 - [二手輔具借用須知](https://tpap.taipei/app37/rentView/intaipei)
+- [臺北市輔具資源整合資訊網 二手輔具借用](https://tpap.taipei/app37/rentView/additem)：即時庫存、款式、各中心數量、等待人數。由 `server/stock.mjs` 爬取（經主辦單位同意），`serve.mjs` 的 `/api/stock` 快取 10 分鐘；爬不到時用 `data/stock-snapshot.json` 快照
 - [中華民國政府行政機關辦公日曆表](https://data.gov.tw/dataset/14718)（行政院人事行政總處，政府資料開放授權條款第 1 版）：國定假日休館。原始 CSV 在 `data/`，`web/js/holidays.js` 由它產生
 - 座標：OpenStreetMap Nominatim（© OpenStreetMap contributors，ODbL）
 

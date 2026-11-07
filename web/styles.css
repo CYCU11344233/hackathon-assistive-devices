@@ -220,3 +220,10 @@ h3 { font-size: 1.1rem; }
 /* 回來時問「預約成功了嗎」 */
 .pending { border: 2px solid var(--primary); margin-top: 12px; }
 .pending .btn.ghost { width: 100%; margin-top: 8px; }
+/* 即時庫存 */
+.item { align-content: center; gap: 2px; }
+.item small { font-size: .85rem; font-weight: 600; }
+.centers-stock { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.centers-stock span { padding: 4px 10px; border-radius: 999px; background: var(--line); color: var(--muted); font-size: .95rem; }
+.centers-stock span.has { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+.model .line { color: var(--muted); }

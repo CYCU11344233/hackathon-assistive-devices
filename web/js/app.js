@@ -199,6 +199,28 @@ function pendingBanner() {
     <button class="btn ghost" data-act="dismissPending">沒有預約</button></div>`;
 }
 
+// ---------- 即時庫存 ----------
+// 由 serve.mjs 的 /api/stock 提供（爬臺北市輔具資源整合資訊網，快取 10 分鐘）。
+// 拿不到時 stock 維持 null，畫面退回沒有庫存資訊的版本。
+const OFFICIAL = 'https://tpap.taipei/app37/rentView';
+const CENTER_SHORT = { heyi: '合宜', west: '西區', south: '南區' };
+let stock = null;
+fetch('/api/stock')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((d) => {
+    if (!d?.categories) return;
+    stock = d;
+    // 正在填表單時不要重畫，避免清掉使用者輸入
+    if (!document.getElementById('loan-form') && !document.getElementById('demo-form')) render();
+  })
+  .catch(() => {});
+const stockCat = (name) => stock?.categories.find((c) => c.name === name);
+function stockNote() {
+  if (!stock) return '';
+  const t = new Date(stock.fetchedAt);
+  return `<p class="small">即時庫存（${fmtTime(t)} 更新，來源：臺北市輔具資源整合資訊網）${stock.stale ? '・官網暫時連不上，顯示上次資料' : ''}</p>`;
+}
+
 // ---------- 頁面 ----------
 function home() {
   const loans = state.loans.map((l) => ({ l, st: loanStatus(l) }));
@@ -245,10 +267,13 @@ function borrow(_m, q) {
     const ids = (q.get('needs') || '').split(',').filter(Boolean);
     const picked = NEEDS.filter((n) => ids.includes(n.id));
     const rec = new Set(picked.flatMap((n) => n.items));
-    const all = [...ITEMS, '爬梯機'];
+    // 有即時庫存時用官網的 12 大類（含「其他」），沒有時用須知列的項目
+    const all = stock ? [...stock.categories.map((c) => c.name), '爬梯機'] : [...ITEMS, '爬梯機', '其他輔具'];
     const tile = (it) => {
       const href = it === '爬梯機' ? '#/borrow?step=stair' : `#/borrow?step=plan&item=${encodeURIComponent(it)}`;
-      return `<a class="item ${rec.has(it) ? 'rec' : ''}" href="${href}">${rec.has(it) ? '👍 ' : ''}${esc(it)}</a>`;
+      const c = stockCat(it);
+      const badge = c ? (c.remaining > 0 ? `<small class="tone-ok">剩 ${c.remaining}</small>` : '<small class="tone-warn">排隊中</small>') : '';
+      return `<a class="item ${rec.has(it) ? 'rec' : ''}" href="${href}"><span>${rec.has(it) ? '👍 ' : ''}${esc(it === '其他輔具' ? '其他' : it)}</span>${badge}</a>`;
     };
     const recItems = all.filter((it) => rec.has(it));
     const others = all.filter((it) => !rec.has(it));
@@ -259,8 +284,8 @@ function borrow(_m, q) {
         ${picked.length ? '<p class="small">只是建議，不確定可先打電話問輔具中心</p>' : ''}
       </details>
       ${recItems.length ? `<h2>建議</h2><div class="item-grid">${recItems.map(tile).join('')}</div><h2>其他</h2>` : '<h2>點選要借的輔具</h2>'}
-      <div class="item-grid">${others.map(tile).join('')}
-        <a class="item" href="#/borrow?step=plan&item=${encodeURIComponent('其他輔具')}">其他</a></div>`,
+      ${stockNote()}
+      <div class="item-grid">${others.map(tile).join('')}</div>`,
     };
   }
   if (step === 'stair') {
@@ -269,6 +294,28 @@ function borrow(_m, q) {
       html: `<div class="alert info">爬梯機要先<strong>預約評估</strong>，不能直接借。</div>
       <div class="btn-row"><button class="btn primary big" data-act="link" data-url="${LINKS.stairEval}">去官網預約評估</button></div>
       <h2>輔具中心</h2>${locateButton()}${sortedCenters().map((x) => centerCard(x, false)).join('')}`,
+    };
+  }
+  if (step === 'plan' && stockCat(item)) {
+    const cat = stockCat(item);
+    const models = [...cat.models].sort((a, b) => (b.remaining > 0) - (a.remaining > 0));
+    const modelCard = (m) => `<article class="card model">
+      <div class="card-head"><h3>${esc(m.name)}</h3>${m.remaining > 0 ? `<span class="chip ok">剩 ${m.remaining}</span>` : `<span class="chip warn">排隊 ${m.waiting} 人</span>`}</div>
+      ${m.spec ? `<p class="line">${esc(m.spec)}</p>` : ''}
+      ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
+      ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
+      <div class="btn-row">${m.remaining > 0
+        ? `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}" data-pending="${esc(item)}">去官網預約這款</button>`
+        : `<button class="btn" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">去官網登記到貨通知</button>`}</div>
+    </article>`;
+    return {
+      title: `借${item}`,
+      html: `${stockNote()}
+      ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了，可以登記到貨通知排隊，或打電話問中心</div>'}
+      <h2>選款式</h2>${models.map(modelCard).join('')}
+      <h2>預約好了？</h2>
+      <div class="btn-row"><a class="btn big" href="#/loan/new?item=${encodeURIComponent(item)}">📝 記下預約</a></div>
+      <h2>輔具中心</h2>${locateButton()}${sortedCenters().map((x) => centerCard(x)).join('')}`,
     };
   }
   if (step === 'plan') {
@@ -494,11 +541,12 @@ function sources() {
     html: `<ul class="sources">
       <li><strong>中心名稱、開放時間、地址、電話</strong><br>臺北市政府社會局「臺北市二手輔具資源提供單位」，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="${LINKS.dataset}">data.gov.tw/dataset/135817</button></li>
       <li><strong>借用規則、入口提示、可借項目</strong><br>臺北市輔具資源整合資訊網「二手輔具借用須知」。<br><button class="linkish" data-act="link" data-url="${LINKS.reserve}">tpap.taipei/app37/rentView/intaipei</button></li>
+      <li><strong>即時庫存、款式、排隊人數</strong><br>臺北市輔具資源整合資訊網「二手輔具借用」頁面，每 10 分鐘最多更新一次（經主辦單位同意爬取）。<br><button class="linkish" data-act="link" data-url="https://tpap.taipei/app37/rentView/additem">tpap.taipei/app37/rentView/additem</button></li>
       <li><strong>國定假日</strong><br>行政院人事行政總處「中華民國政府行政機關辦公日曆表」115、116 年，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="https://data.gov.tw/dataset/14718">data.gov.tw/dataset/14718</button></li>
       <li><strong>座標</strong><br>OpenStreetMap Nominatim 依地址查詢，© OpenStreetMap contributors（ODbL），用來算距離。導航用中心名稱搜尋。</li>
     </ul>
     <ul class="plain">
-      <li>預約在官網完成，這裡不代替預約。</li>
+      <li>預約在官網完成，這裡不代替預約，也不需要登入。</li>
       <li>紀錄只存在這支手機，不會上傳。</li>
       <li>規則以官方公告和借用單為準。</li>
     </ul>
