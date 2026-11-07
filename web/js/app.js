@@ -103,12 +103,12 @@ function loanStatus(loan) {
   if (s.stage === 'reserved') return { ...pickupText(s.pickup), s, label: '等待取貨' };
   if (s.stage === 'borrowed') {
     const due = fmtDate(s.due);
-    // 到期日休館時，改提示最後可歸還的時間
-    const closed = s.dueClosed && s.level !== 'overdue' ? `（當日休館，請於 ${fmtDate(s.returnBy)} ${fmtTime(s.returnBy)} 前歸還）` : '';
-    if (s.level === 'overdue') return { tone: 'danger', text: `已逾歸還期限 ${-s.daysLeft} 天`, s, label: '借用中' };
-    if (s.level === 'urgent') return { tone: 'danger', text: `歸還期限：${s.daysLeft === 0 ? '今日' : '明日'}${closed}`, s, label: '借用中' };
-    if (s.level === 'soon') return { tone: 'warn', text: `歸還期限：${due}，剩 ${s.daysLeft} 天${closed}`, s, label: '借用中' };
-    return { tone: 'ok', text: `歸還期限：${due}${closed}`, s, label: '借用中' };
+    // 到期日休館時，另起一行提示最後可歸還的時間
+    const note = s.dueClosed && s.level !== 'overdue' ? `※ 到期日為休館日，請於 ${fmtDate(s.returnBy)} ${fmtTime(s.returnBy)} 前歸還` : '';
+    if (s.level === 'overdue') return { tone: 'danger', text: `已逾到期日 ${-s.daysLeft} 天`, s, label: '借用中' };
+    if (s.level === 'urgent') return { tone: 'danger', text: `到期日：${due}（${s.daysLeft === 0 ? '今日' : '明日'}）`, note, s, label: '借用中' };
+    if (s.level === 'soon') return { tone: 'warn', text: `到期日：${due}・剩餘 ${s.daysLeft} 天`, note, s, label: '借用中' };
+    return { tone: 'ok', text: `到期日：${due}`, note, s, label: '借用中' };
   }
   if (s.late && s.suspendedNow) return { tone: 'danger', text: `停權至 ${fmtDate(s.suspendedUntil)}`, s, label: '已歸還' };
   return { tone: 'muted', text: `${fmtDate(loan.returnedAt)} 已歸還`, s, label: '已歸還' };
@@ -352,7 +352,7 @@ function home() {
       <article class="card tone-border-${st.tone}">
         <a class="card-link" href="#/loan/${l.id}">
           <div class="card-head"><h3>${esc(l.item)}</h3><span class="chip ${st.tone}">${st.label}</span></div>
-          <p class="line tone-${st.tone}">${st.text}</p>
+          <p class="line tone-${st.tone}">${st.text}</p>${st.note ? `<p class="small">${st.note}</p>` : ''}
         </a>
         ${st.s.stage === 'reserved' && st.s.pickup.status !== 'expired' ? `<h4>出門前檢查</h4>${checklist(l, 'pickup')}` : ''}
       </article>`).join('')}` : ''}
@@ -589,10 +589,10 @@ function timeline(loan, st) {
     return `<ol class="timeline">${rows.map(([k, v, done]) => `<li class="${done ? 'done' : ''}"><span>${k}</span><strong>${v}</strong></li>`).join('')}</ol>`;
   }
   if (st.s.stage === 'reserved') {
-    rows.push(['最晚取貨', st.s.pickup.deadline ? fmtSmart(st.s.pickup.deadline) : '沒有開館時段', false]);
+    rows.push(['取件期限', st.s.pickup.deadline ? fmtSmart(st.s.pickup.deadline) : '沒有開館時段', false]);
   }
   rows.push(['取貨', loan.pickedUpAt ? fmtDate(loan.pickedUpAt) : '尚未取貨', !!loan.pickedUpAt]);
-  rows.push([loan.renewed ? '歸還期限（已續借）' : '歸還期限', loan.dueDate ? fmtDate(loan.dueDate) : '取貨後 3 個月', !!loan.returnedAt]);
+  rows.push([loan.renewed ? '到期日（已續借）' : '到期日', loan.dueDate ? fmtDate(loan.dueDate) : '取貨後 3 個月', !!loan.returnedAt]);
   rows.push(['歸還', loan.returnedAt ? fmtDate(loan.returnedAt) : '—', !!loan.returnedAt]);
   return `<ol class="timeline">${rows.map(([k, v, done]) => `<li class="${done ? 'done' : ''}"><span>${k}</span><strong>${v}</strong></li>`).join('')}</ol>`;
 }
@@ -615,8 +615,7 @@ function loanDetail(m) {
         <li>取貨後回來按下方「已完成借用」，我們會提醒你歸還日</li></ol></div>`;
     }
     body += p.intervals.length
-      ? `<div class="card"><h3>可取貨時段</h3><ul class="plain">${p.intervals.map((iv) => `<li>${dayWord(iv.start)} ${fmtTime(iv.start)}–${fmtTime(iv.end)}</li>`).join('')}</ul>
-         <p class="small">沒去拿會自動取消</p></div>`
+      ? `<div class="card"><h3>可取貨時段</h3><ul class="plain">${p.intervals.map((iv) => `<li>${dayWord(iv.start)} ${fmtTime(iv.start)}–${fmtTime(iv.end)}</li>`).join('')}</ul></div>`
       : '';
     const warn = p.status === 'impossible' ? '取件期限內本中心無開館時段，請先致電確認取件方式。'
       : p.status === 'expired' ? '已逾取件期限，預約可能已取消，請致電確認或重新預約。' : '';
@@ -631,16 +630,16 @@ function loanDetail(m) {
         <button class="btn danger-outline big" data-act="cancelLoan" data-loan="${loan.id}">取消預約</button>
         <p class="small">不需要時請取消預約，以利其他民眾借用。</p></section>`;
   } else if (s.stage === 'borrowed') {
-    body += `<div class="days tone-${st.tone}"><strong>${s.daysLeft < 0 ? `逾期 ${-s.daysLeft}` : s.daysLeft}</strong><span>${s.daysLeft < 0 ? '天' : '天後到期'}</span></div>`;
+    body += `<div class="days tone-${st.tone}"><span>${s.daysLeft < 0 ? '已逾期' : '距到期日'}</span><strong>${Math.abs(s.daysLeft)}</strong><span>天</span></div>`;
     if (s.level === 'overdue') {
       body += `<div class="alert danger">逾期會停權。今天還，<strong>${fmtDate(addMonths(startOfDay(now()), 3))}</strong> 起才能再借。</div>`;
     }
     body += `<div class="card"><h3>歸還前準備</h3>${checklist(loan, 'return')}</div>`;
     body += s.canRenew
       ? `<form class="card form" id="renew-form"><h3>續借</h3>
-          <p class="small">若具特殊需求，得申請續借 1 次。請先洽輔具中心辦理，辦妥後再更新歸還期限。</p>
+          <p class="small">若具特殊需求，得申請續借 1 次。請先洽輔具中心辦理，辦妥後再更新到期日。</p>
           <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">${ICON.phone} 洽輔具中心</button></div>
-          <label>新的歸還期限（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
+          <label>新的到期日（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
           <button class="btn" type="submit">已辦妥續借</button></form>`
       : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
     body += `<section class="card actions-card"><h3>辦理</h3>
@@ -654,7 +653,7 @@ function loanDetail(m) {
   return {
     title: loan.item,
     html: `<section class="detail-head"><h2>${esc(loan.item)}</h2><p class="small">${loan.model ? `${esc(loan.model)}・` : ''}${esc(shortName(c))}${loan.official ? '・已在官網預約' : ''}</p>
-      <p class="status tone-${st.tone}">${st.text}</p></section>
+      <p class="status tone-${st.tone}">${st.text}</p>${st.note ? `<p class="small">${st.note}</p>` : ''}</section>
       ${timeline(loan, st)}
       ${body}
       <nav class="page-end"><a class="btn ghost big" href="#/">回首頁</a></nav>
@@ -668,7 +667,7 @@ function loanDetail(m) {
         loan.dueDate = fromDateInput(rf.dueDate.value).toISOString();
         loan.renewed = true;
         loan.notified = [];
-        save(); toast('已更新歸還期限'); render();
+        save(); toast('已更新到期日'); render();
       });
     },
   };
@@ -878,7 +877,7 @@ const actions = {
     const loan = state.loans.find((l) => l.id === el.dataset.loan);
     const f = await formDialog('已完成借用（已取貨）', `
       <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}" required></label>
-      <label>歸還期限（依借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}" required></label>`, '確認', (form) => {
+      <label>到期日（依借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}" required></label>`, '確認', (form) => {
       // 改取貨日時，歸還期限跟著算（除非使用者自己改過）
       let touched = false;
       form.dueDate.addEventListener('input', () => { touched = true; });

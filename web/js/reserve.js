@@ -61,7 +61,7 @@ export function reservePage(ctx) {
   const cannotPick = ctx.pickup.status === 'impossible';
   // 取件期限用公告的寫法
   const pickupLine = cannotPick
-    ? '本中心 2 日內（含當日）無開館時段，預約後將無法於期限內取件，建議改選其他中心或先致電洽詢。'
+    ? '本中心近期無開館時段，預約後將無法於期限內取件，建議改選其他中心或先致電洽詢。'
     : `取件期限：預約成功後，請於 ${ctx.pickup.deadline} 前至本中心取件，逾期將自動取消。`;
   return {
     title: wait ? '登記候補' : '填寫預約資料',
@@ -109,7 +109,7 @@ export function reservePage(ctx) {
         <fieldset><legend>福利資格</legend>${radios('selective', [['1', '一般收入戶'], ['2', '中低收入戶'], ['3', '低收入戶']])}</fieldset>
 
         <button class="btn primary big" type="submit">${wait ? '送出候補' : '送出預約'}</button>
-        ${wait ? '' : `<p class="small">預約成功後，請於 2 日內（含當日）開館時間至中心取件，逾期將自動取消。</p>
+        ${wait ? '' : `<p class="small">預約成功後，請於 2 個開館日內（含當日）至中心取件，逾期將自動取消。</p>
         <button class="btn ghost" type="button" data-act="officialReserve" data-center="${center}" data-model="${model.id}">改到官網填寫</button>`}
       </form>`,
     async mount() {
@@ -151,7 +151,7 @@ export function reservePage(ctx) {
         };
         const centers = [...f.querySelectorAll('input[name=waitCenter]:checked')].map((x) => x.value);
         if (wait && !centers.length) { ctx.toast('請至少勾選一個中心'); return; }
-        const ok = await ctx.confirmDialog(wait ? `確定登記候補？` : `確定在${ctx.centerName}預約？`, `${item}・${model.name}${cannotPick ? '。注意：本中心 2 日內無開館時段，預約後將無法取件' : ''}`, '送出', 'primary');
+        const ok = await ctx.confirmDialog(wait ? `確定登記候補？` : `確定在${ctx.centerName}預約？`, `${item}・${model.name}${cannotPick ? '。注意：本中心近期無開館時段，預約後將無法取件' : ''}`, '送出', 'primary');
         if (!ok) return;
         const btn = f.querySelector('button[type=submit]');
         btn.disabled = true; btn.textContent = '送出中…';

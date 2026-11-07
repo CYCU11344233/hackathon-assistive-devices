@@ -7,7 +7,7 @@ const DAY = 24 * 60 * MIN;
 export const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const CN_DAY = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
 
-// 免費借期 3 個月；逾期停權到歸還後滿 3 個月；預約後 2 天內（含當日）取貨。
+// 免費借期 3 個月；逾期停權到歸還後滿 3 個月；預約後 2 個開館日內（含當日）取貨。
 export const LOAN_MONTHS = 3;
 export const SUSPEND_MONTHS = 3;
 export const PICKUP_DAYS = 2;
@@ -90,16 +90,20 @@ export function openStatus(hours, now, searchDays = 14) {
 }
 
 /**
- * 預約後可以取貨的時段：預約當天與隔天（含當日共 2 天）的開放時段。
+ * 預約後可以取貨的時段：從預約當天起算 2 個開館日的開放時段。
  * 回傳的 deadline 是最後一個可取貨時段的結束時間；沒有任何時段時為 null。
  */
 export function pickupWindow(hours, reservedAt) {
+  // 公告是「預約後 2 天內（含當日）於開館時間取貨」。官網查詢結果的領取期限是算「開館日」：
+  // 例如合宜週一休館，週一預約的領取期限是週三（週二、週三兩個開館日）。
+  // 所以這裡往後找 2 個開館日；預約當天已經關門的話，當天不算。
   const intervals = [];
-  for (let i = 0; i < PICKUP_DAYS; i++) {
-    for (const iv of intervalsOnDate(hours, addDays(reservedAt, i))) {
-      if (iv.end <= reservedAt) continue;
-      intervals.push({ start: iv.start < reservedAt ? new Date(reservedAt) : iv.start, end: iv.end });
-    }
+  let days = 0;
+  for (let i = 0; i <= 30 && days < PICKUP_DAYS; i++) {
+    const today = intervalsOnDate(hours, addDays(reservedAt, i)).filter((iv) => iv.end > reservedAt);
+    if (!today.length) continue;
+    days++;
+    for (const iv of today) intervals.push({ start: iv.start < reservedAt ? new Date(reservedAt) : iv.start, end: iv.end });
   }
   return { intervals, deadline: intervals.length ? intervals[intervals.length - 1].end : null };
 }
@@ -188,26 +192,26 @@ export function reminderFor(loan, hours, now, fmt = (d) => d.toLocaleString()) {
   if (s.stage === 'reserved') {
     const p = s.pickup;
     if (p.status === 'impossible') {
-      return { key: 'pickup-impossible', title: `${item}：預約後可能來不及取貨`, content: '依公告開放時間，預約後 2 天內沒有開館時段，請打電話給中心確認。' };
+      return { key: 'pickup-impossible', title: `${item}：取件期限內無開館時段`, content: '依公告開放時間，預約後近期沒有開館時段，請致電中心確認。' };
     }
     if (p.status === 'expired') {
-      return { key: 'pickup-expired', title: `${item}：取貨期限已過`, content: '預約可能已自動取消，需要的話請重新預約。' };
+      return { key: 'pickup-expired', title: `${item}：已逾取件期限`, content: '依規定預約已自動取消，如仍有需要請重新預約。' };
     }
     if (p.status === 'urgent') {
-      return { key: 'pickup-urgent', title: `${item}：請在 ${fmt(p.deadline)} 前取貨`, content: `剩下的開館時間約 ${p.remainingMin} 分鐘，逾期會自動取消。` };
+      return { key: 'pickup-urgent', title: `${item}：取件期限 ${fmt(p.deadline)}`, content: `剩餘開館時間約 ${p.remainingMin} 分鐘，逾期將自動取消。` };
     }
     return null;
   }
   if (s.stage === 'borrowed') {
     if (s.daysLeft < 0) {
-      return { key: 'overdue', title: `${item}：已超過歸還期限 ${-s.daysLeft} 天`, content: '逾期會被停止借用資格，歸還後滿 3 個月才能再借，請盡快歸還。' };
+      return { key: 'overdue', title: `${item}：已逾到期日 ${-s.daysLeft} 天`, content: '逾期歸還將停止借用資格，歸還後滿 3 個月始得再借用，請儘速歸還。' };
     }
     for (const d of REMINDER_DAYS) {
       if (s.daysLeft <= d && (d === 0 || s.daysLeft > nextLower(d))) {
-        const when = s.daysLeft === 0 ? '今天' : `${s.daysLeft} 天後`;
+        const when = s.daysLeft === 0 ? '今日到期' : `距到期日剩餘 ${s.daysLeft} 天`;
         // 續借規定原文：「若具特殊需求，得限續借 1 次」（二手輔具借用須知）
         const renew = s.canRenew ? '若具特殊需求，得申請續借 1 次，請先洽輔具中心辦理。' : '已續借 1 次，請於期限內歸還。';
-        return { key: `due-${d}`, title: `${item}：${when}到期`, content: `${renew}歸還前請用 75% 酒精消毒並晾乾。` };
+        return { key: `due-${d}`, title: `${item}：${when}`, content: `${renew}歸還前請以 75% 酒精消毒並保持乾燥。` };
       }
     }
   }

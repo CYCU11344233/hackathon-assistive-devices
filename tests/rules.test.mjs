@@ -27,17 +27,23 @@ test('營業狀態：午休、週日、週一', () => {
   assert.deepEqual(openStatus(H.south, at(11, 7, 17, 39)).nextOpen, at(11, 9, 9));
 });
 
-test('週六 16:30 在合宜預約：週日沒開，只剩今天 30 分鐘', () => {
+test('週六 16:30 在合宜預約：週六、週二兩個開館日，最晚週二 17:00', () => {
   const p = pickupStatus(H.heyi, at(11, 7, 16, 30), at(11, 7, 16, 30));
-  assert.equal(p.status, 'urgent');
-  assert.deepEqual(p.deadline, at(11, 7, 17));
-  assert.equal(p.remainingMin, 30);
+  assert.equal(p.status, 'ok');
+  assert.deepEqual(p.deadline, at(11, 10, 17));
 });
 
-test('週日在西區預約：週日、週一都沒開，沒有可取貨時段', () => {
+test('週日在西區預約：週日、週一休館，算週二、週三，最晚週三 17:00', () => {
   const w = pickupWindow(H.west, at(11, 8, 10));
-  assert.equal(w.deadline, null);
-  assert.equal(pickupStatus(H.west, at(11, 8, 10), at(11, 8, 10)).status, 'impossible');
+  assert.deepEqual(w.deadline, at(11, 11, 17));
+});
+
+test('週日在南區預約（使用者回報）：算週一、週二，最晚週二 17:00', () => {
+  assert.deepEqual(pickupWindow(H.south, at(11, 8, 1, 48)).deadline, at(11, 10, 17));
+});
+
+test('和官網紀錄一致：合宜週一休館，週一預約的領取期限是週三', () => {
+  assert.deepEqual(pickupWindow(H.heyi, new Date(2024, 6, 8, 10)).deadline, new Date(2024, 6, 10, 17));
 });
 
 test('週二在南區預約：最晚週三 17:00', () => {
@@ -46,8 +52,8 @@ test('週二在南區預約：最晚週三 17:00', () => {
   assert.deepEqual(p.deadline, at(11, 11, 17));
 });
 
-test('週五晚上在南區預約：週六沒開，沒有可取貨時段', () => {
-  assert.equal(pickupStatus(H.south, at(11, 13, 18), at(11, 13, 18)).status, 'impossible');
+test('週五關門後在南區預約：當天不算，算週一、週二', () => {
+  assert.deepEqual(pickupWindow(H.south, at(11, 13, 18)).deadline, at(11, 17, 17));
 });
 
 test('過了取貨期限', () => {
@@ -106,7 +112,7 @@ test('國定假日休館：2027 春節連假，到期日要提早送回', () => 
   const s = loanStage(loan, heyi, new Date(2027, 0, 20));
   assert.equal(s.dueClosed, true);
   assert.deepEqual(s.returnBy, new Date(2027, 1, 3, 17));
-  // 春節前夕 2/3（三）16:30 預約：2/4 起連休，只剩當天 30 分鐘
+  // 春節前夕 2/3（三）16:30 預約：2/4–2/10 連休不算，第二個開館日是 2/11（四）
   const p = pickupStatus(heyi, new Date(2027, 1, 3, 16, 30), new Date(2027, 1, 3, 16, 30));
-  assert.equal(p.status, 'urgent');
+  assert.deepEqual(p.deadline, new Date(2027, 1, 11, 17));
 });
