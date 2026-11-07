@@ -52,15 +52,19 @@ export function reservePage(ctx) {
   const { esc, model, item, center } = ctx;
   const a = userInfo ? fromAccount(userInfo) : {};
   const v = (k) => esc(a[k] || '');
+  const cannotPick = ctx.pickup.status === 'impossible';
+  // 取件期限用公告的寫法
+  const pickupLine = cannotPick
+    ? '本中心 2 日內（含當日）無開館時段，預約後將無法於期限內取件，建議改選其他中心或先致電洽詢。'
+    : `取件期限：預約成功後，請於 ${ctx.pickup.deadline} 前至本中心取件，逾期將自動取消。`;
   return {
     title: '填寫預約資料',
     html: `<div class="card summary">
-        <p class="small">預約</p>
+        <p class="small">預約 ${config.liveReserve ? '<span class="chip danger">正式送出</span>' : '<span class="chip muted">演練模式</span>'}</p>
         <h3>${esc(item)}・${esc(model.name)}${model.spec ? `（${esc(model.spec)}）` : ''}</h3>
         <p>${esc(ctx.centerName)}</p>
-        <p class="line tone-${ctx.pickup.tone}">現在預約：${esc(ctx.pickup.text)}${ctx.pickup.tone === 'danger' ? '，建議換中心或先打電話' : ''}</p>
+        <p class="line ${cannotPick ? 'tone-danger' : ''}">${esc(pickupLine)}</p>
       </div>
-      ${config.liveReserve ? '<div class="alert danger">會真的送到官網預約</div>' : '<div class="alert info">演練模式：會檢查資料，但不會真的送到官網</div>'}
       <div id="ui-note">${userInfo ? '<div class="alert ok">已帶入台北通帳號資料，請確認</div>' : ''}</div>
       <div id="errors"></div>
       <form id="reserve-form" class="form">
@@ -97,7 +101,7 @@ export function reservePage(ctx) {
         <fieldset><legend>福利資格</legend>${radios('selective', [['1', '一般收入戶'], ['2', '中低收入戶'], ['3', '低收入戶']])}</fieldset>
 
         <button class="btn primary big" type="submit">送出預約</button>
-        <p class="small">送出後官網會保留這件輔具，請在 2 天內（含當天）開館時間去取貨</p>
+        <p class="small">預約成功後，請於 2 日內（含當日）開館時間至中心取件，逾期將自動取消。</p>
         <button class="btn ghost" type="button" data-act="officialReserve" data-center="${center}" data-model="${model.id}">改到官網填寫</button>
       </form>`,
     async mount() {
@@ -137,7 +141,7 @@ export function reservePage(ctx) {
           userBirth: val('userBirth'),
           handicap: checked('handicap'), lcms: checked('lcms'), selective: checked('selective'),
         };
-        const ok = await ctx.confirmDialog(`確定在${ctx.centerName}預約？`, `${item}・${model.name}`, '送出', 'primary');
+        const ok = await ctx.confirmDialog(`確定在${ctx.centerName}預約？`, `${item}・${model.name}${cannotPick ? '。注意：本中心 2 日內無開館時段，預約後將無法取件' : ''}`, '送出', 'primary');
         if (!ok) return;
         const btn = f.querySelector('button[type=submit]');
         btn.disabled = true; btn.textContent = '送出中…';
@@ -153,7 +157,7 @@ export function reservePage(ctx) {
           return;
         }
         // 成功（或演練）就直接記到「我的借用」，不用使用者自己再記一次
-        const id = ctx.addLoan({ item, model: `${model.name}${model.spec ? ` ${model.spec}` : ''}`, centerId: center, official: !res.dryRun });
+        const id = ctx.addLoan({ item, model: model.name, centerId: center, official: !res.dryRun });
         ctx.toast(res.dryRun ? '演練模式：資料檢查通過，已記到我的借用（沒有真的送出）' : '已在官網預約成功，記到我的借用了', 5000);
         ctx.replaceTo(`#/loan/${id}`);
       });

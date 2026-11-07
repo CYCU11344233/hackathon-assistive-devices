@@ -115,10 +115,19 @@ function loanStatus(loan) {
 const TONE_RANK = { danger: 0, warn: 1, info: 2, ok: 3, muted: 4 };
 
 // ---------- 共用元件 ----------
+// 單色線條圖示（跟著按鈕文字顏色），取代顏色不一的 emoji
+const svg = (d) => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICON = {
+  phone: svg('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'),
+  nav: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>'),
+  pin: svg('<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>'),
+  bell: svg('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
+};
+
 function centerActions(c) {
   return `<div class="btn-row">
-    <button class="btn" data-act="call" data-phone="${c.phone}">📞 撥號</button>
-    <button class="btn" data-act="map" data-center="${c.id}">🧭 導航</button>
+    <button class="btn" data-act="call" data-phone="${c.phone}">${ICON.phone} 撥號</button>
+    <button class="btn" data-act="map" data-center="${c.id}">${ICON.nav} 導航</button>
   </div>`;
 }
 
@@ -187,7 +196,7 @@ function checklist(loan, list) {
 }
 
 function locateButton() {
-  return myLoc ? '' : '<button class="btn ghost" data-act="locate">📍 依距離排序</button>';
+  return myLoc ? '' : `<button class="btn ghost" data-act="locate">${ICON.pin} 依距離排序</button>`;
 }
 
 // ---------- 即時庫存 ----------
@@ -208,10 +217,41 @@ fetch('/api/stock')
   })
   .catch(() => {});
 const stockCat = (name) => stock?.categories.find((c) => c.name === name);
+const stockModel = (id) => stock?.categories.flatMap((c) => c.models.map((m) => ({ ...m, cat: c.name }))).find((m) => m.id === Number(id));
+
+// ---------- 到貨通知（台北通自己的） ----------
+// 沒貨的款式可以按「有貨時通知我」，記在這支手機。每次打開 App 拿到最新庫存時檢查，
+// 有貨就跳台北通通知、首頁顯示「可以預約了」。和官網的「候補」不同：官網候補是排隊順位，
+// 這裡只是提醒「現在有貨」，兩個可以一起用。
+const watches = () => (state.watches ||= []);
+function watchList() {
+  if (!watches().length) return '';
+  return `<h2>到貨通知</h2>${watches().map((w) => {
+    const m = stockModel(w.modelId);
+    const has = m && m.remaining > 0;
+    return `<a class="card link tone-border-${has ? 'ok' : 'muted'}" href="#/borrow?step=plan&item=${encodeURIComponent(w.item)}">
+      <div class="card-head"><h3>${esc(w.item)}</h3><span class="chip ${has ? 'ok' : 'muted'}">${has ? `有貨 ${m.remaining}` : '等待中'}</span></div>
+      <p class="line">${esc(w.name)}${has ? '・可以預約了' : '・有貨時會通知你'}</p></a>`;
+  }).join('')}`;
+}
+function checkWatches() {
+  if (!stock) return;
+  let changed = false;
+  for (const w of watches()) {
+    const m = stockModel(w.modelId);
+    const has = !!m && m.remaining > 0;
+    if (has && !w.notified) {
+      bridge.notify('輔具到貨了', `${w.item}・${w.name} 現在有 ${m.remaining} 件，可以預約`, (t, c) => toast(`${t}｜${c}`, 6000));
+      w.notified = true; changed = true;
+    } else if (!has && w.notified) { w.notified = false; changed = true; }
+  }
+  if (changed) save();
+}
 function stockNote() {
   if (!stock) return '';
   const t = new Date(stock.fetchedAt);
-  return `<p class="small">即時庫存（${fmtTime(t)} 更新，來源：臺北市輔具資源整合資訊網）${stock.stale ? '・官網暫時連不上，顯示上次資料' : ''}</p>`;
+  // 一行就好：來源寫在「資料來源」頁
+  return `<p class="small stock-note">${stock.stale ? `官網連不上，顯示 ${fmtTime(t)} 的庫存` : `庫存 ${fmtTime(t)} 更新`}</p>`;
 }
 
 // 畫面中間跳出的確認視窗（用 <dialog>），回傳 Promise<boolean>
@@ -240,10 +280,13 @@ function reserve(_m, q) {
   return reservePage({
     esc, toast, confirmDialog, replaceTo, render, item, center, model,
     centerName: shortName(centerById(center)),
-    pickup: pickupText(pickupStatus(HOURS[center], now(), now())),
+    pickup: (() => {
+      const p = pickupStatus(HOURS[center], now(), now());
+      return { status: p.status, deadline: p.deadline ? `${fmtDate(p.deadline)} ${fmtTime(p.deadline)}` : '' };
+    })(),
     addLoan({ item: name, model: modelName, centerId, official }) {
       const loan = {
-        id: newId(), item: name, model: modelName, centerId, official,
+        id: newId(), item: name, model: modelName, centerId, official, viaApp: true,
         reservedAt: now().toISOString(), renewed: false, notified: [], checks: { pickup: [], return: [] },
       };
       state.loans.push(loan);
@@ -265,19 +308,23 @@ function home() {
     ${suspended ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(suspended.st.s.suspendedUntil)}</strong> 前不能再借。</div>` : ''}
     <div class="big-actions">
       <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具（免費）</strong></div></a>
-      <a class="big-btn" href="#/loan/new"><span>📝</span><div><strong>記下預約</strong></div></a>
       <a class="big-btn" href="#/centers"><span>🏥</span><div><strong>輔具中心</strong></div></a>
     </div>
     ${active.length ? `<h2>我的借用</h2>${active.map(({ l, st }) => `
-      <a class="card link tone-border-${st.tone}" href="#/loan/${l.id}">
-        <div class="card-head"><h3>${esc(l.item)}</h3><span class="chip ${st.tone}">${st.label}</span></div>
-        <p class="line tone-${st.tone}">${st.text}</p>
-      </a>`).join('')}` : ''}
+      <article class="card tone-border-${st.tone}">
+        <a class="card-link" href="#/loan/${l.id}">
+          <div class="card-head"><h3>${esc(l.item)}</h3><span class="chip ${st.tone}">${st.label}</span></div>
+          <p class="line tone-${st.tone}">${st.text}</p>
+        </a>
+        ${st.s.stage === 'reserved' && st.s.pickup.status !== 'expired' ? `<h4>出門前檢查</h4>${checklist(l, 'pickup')}` : ''}
+      </article>`).join('')}` : ''}
+    ${watchList()}
     ${returned.length ? `<details class="returned"><summary>已歸還（${returned.length}）</summary>${returned.map(({ l, st }) => `
       <a class="card link" href="#/loan/${l.id}"><div class="card-head"><h3>${esc(l.item)}</h3></div><p class="line tone-${st.tone}">${st.text}</p></a>`).join('')}</details>` : ''}
+    <p class="footer-links"><a href="#/loan/new">用電話或官網預約了？手動記下</a></p>
     <p class="footer-links"><a href="#/sources">資料來源</a></p>
     `,
-    mount: runReminders,
+    mount() { runReminders(); checkWatches(); },
   };
 }
 
@@ -290,7 +337,7 @@ function borrow(_m, q) {
       html: `<div class="alert warn">請至「輔具資源入口網」查詢各縣市</div>
       <div class="btn-row"><button class="btn primary big" data-act="link" data-url="${LINKS.portal}">開啟輔具資源入口網</button></div>
       <p class="small">有長照需求也可以撥長照專線</p>
-      <div class="btn-row"><button class="btn" data-act="call" data-phone="1966">📞 撥打 1966</button></div>`,
+      <div class="btn-row"><button class="btn" data-act="call" data-phone="1966">${ICON.phone} 撥打 1966</button></div>`,
     };
   }
   if (step === 'agree') {
@@ -307,7 +354,8 @@ function borrow(_m, q) {
         const f = document.getElementById('agree-form');
         const ok = f.querySelector('button[type=submit]');
         f.addEventListener('change', () => { ok.disabled = !AGREEMENTS.every((_, i) => f[`a${i}`].checked); });
-        f.addEventListener('submit', (e) => { e.preventDefault(); location.hash = '#/borrow?step=item'; });
+        // 用 replace：在「想借什麼？」按返回直接回首頁，不會再回到資格、注意事項
+        f.addEventListener('submit', (e) => { e.preventDefault(); replaceTo('#/borrow?step=item'); });
       },
     };
   }
@@ -354,15 +402,18 @@ function borrow(_m, q) {
       ${m.spec ? `<p class="line">${esc(m.spec)}</p>` : ''}
       ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
       ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
-      <div class="btn-row">${m.remaining > 0
+      <div class="btn-row ${m.remaining > 0 ? '' : 'stack'}">${m.remaining > 0
         ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<a class="btn primary" href="#/reserve?center=${k}&model=${m.id}&item=${encodeURIComponent(item)}">在${CENTER_SHORT[k]}預約</a>`).join('')
           || `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}">去官網預約這款</button>`
-        : `<button class="btn" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">去官網登記到貨通知</button>`}</div>
+        : `${watches().some((w) => w.modelId === m.id)
+            ? `<button class="btn" data-act="unwatch" data-model="${m.id}">${ICON.bell} 已設定通知（取消）</button>`
+            : `<button class="btn primary" data-act="watch" data-model="${m.id}" data-item="${esc(item)}">${ICON.bell} 有貨時通知我</button>`}
+           <button class="btn ghost" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">到官網排隊候補</button>`}</div>
     </article>`;
     return {
       title: `借${item}`,
       html: `${stockNote()}
-      ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了，可以登記到貨通知排隊，或打電話問中心</div>'}
+      ${cat.remaining > 0 ? '' : '<div class="alert warn">目前都借完了。按「有貨時通知我」，有貨時台北通會通知你；想排隊候補請到官網登記</div>'}
       <h2>選款式</h2>${models.map(modelCard).join('')}`,
     };
   }
@@ -384,7 +435,7 @@ function borrow(_m, q) {
     title: '借用資格',
     html: `<h2>使用的人戶籍在臺北市嗎？</h2>
     <div class="choice">
-      <a class="btn primary big" href="#/borrow?step=agree">是，戶籍在臺北市</a>
+      <a class="btn primary big" href="#/borrow?step=agree" data-act="go">是，戶籍在臺北市</a>
       <a class="btn big" href="#/borrow?step=out">不是</a>
     </div>`,
   };
@@ -395,7 +446,7 @@ function centers() {
   return {
     title: '輔具中心',
     html: `<p class="small">已排除國定假日；臨時休館請以中心公告為準</p>
-    ${myLoc ? '<p class="small">📍 已依離你的距離排序</p>' : locateButton()}
+    ${myLoc ? `<p class="small">${ICON.pin} 已依離你的距離排序</p>` : locateButton()}
     ${sortedCenters().map((x) => centerCard(x)).join('')}`,
     mount() {
       // 打開就自動定位一次；拒絕或失敗時保留「依距離排序」按鈕可以再試
@@ -510,17 +561,23 @@ function loanDetail(m) {
   let body = '';
   if (s.stage === 'reserved') {
     const p = s.pickup;
+    // 下一步：預約完最常見的問題是「然後呢？」，直接講清楚
+    if (p.status !== 'impossible' && p.status !== 'expired') {
+      body += `<div class="next-step"><h3>下一步</h3><ol>
+        <li><strong>${fmtSmart(p.deadline)} 前</strong>帶身分證到${esc(shortName(c))}取貨</li>
+        <li>取貨後回來按下方「已完成借用」，我們會提醒你歸還日</li></ol></div>`;
+    }
     body += p.intervals.length
       ? `<div class="card"><h3>可取貨時段</h3><ul class="plain">${p.intervals.map((iv) => `<li>${dayWord(iv.start)} ${fmtTime(iv.start)}–${fmtTime(iv.end)}</li>`).join('')}</ul>
          <p class="small">沒去拿會自動取消</p></div>`
       : '';
     if (p.status === 'impossible' || p.status === 'expired') {
       body += `<div class="card"><h3>${p.status === 'impossible' ? '先打電話確認' : '重新預約'}</h3>
-        <div class="btn-row"><button class="btn primary" data-act="call" data-phone="${c.phone}">📞 撥號</button>
-        <button class="btn" data-act="link" data-url="${LINKS.reserve}">去官網預約</button></div></div>`;
+        <div class="btn-row"><button class="btn primary" data-act="call" data-phone="${c.phone}">${ICON.phone} 撥號</button>
+        ${p.status === 'expired' ? '<a class="btn" href="#/borrow">重新預約</a>' : ''}</div></div>`;
     }
-    body += `<div class="card"><h3>出門前檢查</h3>${checklist(loan, 'pickup')}</div>
-      <div class="card"><h3>${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>
+    body += `<div class="card"><h3>取貨地點：${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>
+      <div class="card"><h3>出門前檢查</h3>${checklist(loan, 'pickup')}</div>
       <details class="confirm"><summary class="btn primary big">✅ 已完成借用（已取貨）</summary>
         <form class="card form" id="pickup-form">
           <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}"></label>
@@ -535,7 +592,7 @@ function loanDetail(m) {
     body += s.canRenew
       ? `<form class="card form" id="renew-form"><h3>續借</h3>
           <p class="small">若具特殊需求，得申請續借 1 次。請先洽輔具中心辦理，辦妥後再更新歸還期限。</p>
-          <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">📞 洽輔具中心</button></div>
+          <div class="btn-row"><button type="button" class="btn" data-act="call" data-phone="${c.phone}">${ICON.phone} 洽輔具中心</button></div>
           <label>新的歸還期限（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
           <button class="btn" type="submit">已辦妥續借</button></form>`
       : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
@@ -555,6 +612,9 @@ function loanDetail(m) {
       <p class="status tone-${st.tone}">${st.text}</p></section>
       ${timeline(loan, st)}
       ${body}
+      ${(loan.official || loan.viaApp) && s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">請到官網「服務預約查詢與取消」取消，讓給下一位</p>
+        <div class="btn-row"><button class="btn" data-act="link" data-url="${LINKS.query}">到官網取消預約</button></div></div>` : ''}
+      <a class="btn primary big" href="#/">回首頁</a>
       <div class="danger-zone"><button class="btn ghost" data-act="delete" data-loan="${loan.id}">刪除這筆紀錄</button></div>`,
     mount() {
       const pf = document.getElementById('pickup-form');
@@ -601,7 +661,7 @@ function sources() {
       <li><strong>座標</strong><br>OpenStreetMap Nominatim 依地址查詢，© OpenStreetMap contributors（ODbL），用來算距離。導航用中心名稱搜尋。</li>
     </ul>
     <ul class="plain">
-      <li>預約在官網完成，這裡不代替預約，也不需要登入。</li>
+      <li>預約資料由台北通帳號帶入，送到臺北市輔具資源整合資訊網（經主辦單位同意）。</li>
       <li>紀錄只存在這支手機，不會上傳。</li>
       <li>規則以官方公告和借用單為準。</li>
     </ul>
@@ -685,6 +745,18 @@ const actions = {
   call: (el) => bridge.phoneCall(el.dataset.phone),
   map: (el) => { const c = centerById(el.dataset.center); bridge.launchMap(c.lat, c.lng, c.name); },
   link: (el) => bridge.openLink(el.dataset.url),
+  // 換頁但不留瀏覽紀錄
+  go: (el) => replaceTo(el.getAttribute('href')),
+  watch(el) {
+    const m = stockModel(el.dataset.model);
+    if (!m) return;
+    watches().push({ modelId: m.id, item: el.dataset.item, name: `${m.name}${m.spec ? ` ${m.spec}` : ''}`, at: now().toISOString() });
+    save(); toast('有貨時會用台北通通知你'); render();
+  },
+  unwatch(el) {
+    state.watches = watches().filter((w) => w.modelId !== Number(el.dataset.model));
+    save(); toast('已取消到貨通知'); render();
+  },
   // 備用：不在台北通裡填，直接把這款放進官網購物車（官網保留 1 小時），在官網填資料
   async officialReserve(el) {
     const c = centerById(el.dataset.center);
@@ -718,7 +790,8 @@ const actions = {
   },
   async delete(el) {
     const loan = state.loans.find((l) => l.id === el.dataset.loan);
-    if (!await confirmDialog(`確定要刪除「${loan?.item || '這筆紀錄'}」嗎？`, '刪除後無法復原', '刪除')) return;
+    const note = (loan?.official || loan?.viaApp) && !loan.pickedUpAt ? '只會刪除這支手機上的紀錄，官網的預約不會取消' : '刪除後無法復原';
+    if (!await confirmDialog(`確定要刪除「${loan?.item || '這筆紀錄'}」嗎？`, note, '刪除')) return;
     state.loans = state.loans.filter((l) => l.id !== el.dataset.loan);
     save();
     replaceTo('#/');

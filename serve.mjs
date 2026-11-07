@@ -4,6 +4,7 @@
 //   爬取失敗時回傳最後一次成功的快照 data/stock-snapshot.json，並標示 stale: true，
 //   這樣 Demo 現場網路不穩也能顯示資料。
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +58,17 @@ async function getStock() {
   }
 }
 
+const submits = new Map(); // 身分證雜湊 → 送出時間
+function allowSubmit(idno) {
+  const key = createHash('sha256').update(idno).digest('hex');
+  const day = Date.now() - 24 * 3600 * 1000;
+  const list = (submits.get(key) || []).filter((t) => t > day);
+  if (list.length >= 3) return false;
+  list.push(Date.now());
+  submits.set(key, list);
+  return true;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -78,6 +90,11 @@ createServer(async (req, res) => {
       const body = JSON.parse(await readBody(req));
       const errors = validate(body.form || {});
       if (errors.length) { sendJson(res, 400, { errors }); return; }
+      // 防濫用：同一個身分證 24 小時內最多真的送出 3 次（只在記憶體計數，不存身分證）
+      if (LIVE && body.live && !allowSubmit(String(body.form.idno || '').toUpperCase())) {
+        sendJson(res, 429, { errors: ['今天已經預約很多次了，請明天再試，或打電話給輔具中心'] });
+        return;
+      }
       if (!LIVE || !body.live) {
         sendJson(res, 200, { ok: true, dryRun: true, fields: maskParams(buildParams(body.form)) });
         return;
