@@ -1,0 +1,86 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 771d33a..620c059 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,10 +1,12 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+     <application
+         android:label="Town Pass"
+         android:name="${applicationName}"
+-        android:icon="@mipmap/ic_launcher">
++        android:icon="@mipmap/ic_launcher"
++        android:networkSecurityConfig="@xml/network_security_config">
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+@@ -64,6 +66,15 @@
+             <action android:name="android.intent.action.VIEW" />
+             <data android:scheme="tel" />
+         </intent>
++        <!-- checks for web links (launch_map / open_link) -->
++        <intent>
++            <action android:name="android.intent.action.VIEW" />
++            <data android:scheme="https" />
++        </intent>
++        <intent>
++            <action android:name="android.intent.action.VIEW" />
++            <data android:scheme="geo" />
++        </intent>
+         <!-- If your application checks for inAppBrowserView launch mode support -->
+         <intent>
+             <action android:name="android.support.customtabs.action.CustomTabsService" />
+diff --git a/lib/page/city_service/model/my_service_model.dart b/lib/page/city_service/model/my_service_model.dart
+index 4f33a56..27da718 100644
+--- a/lib/page/city_service/model/my_service_model.dart
++++ b/lib/page/city_service/model/my_service_model.dart
+@@ -29,6 +29,7 @@ enum MyServiceItemId {
+   library,
+   locationSearch,
+   zoo,
++  aidHelper,
+   ;
+ }
+ 
+@@ -183,6 +184,13 @@ extension MyServiceIdExt on MyServiceItemId {
+           category: MyServiceCategory.explore,
+           destinationUrl: '',
+         ),
++      MyServiceItemId.aidHelper => MyServiceItem(
++          title: '輔具借用',
++          description: '二手輔具取貨期限、到期提醒',
++          icon: Assets.svg.iconReservation.svg(),
++          category: MyServiceCategory.healthCare,
++          destinationUrl: 'http://localhost:5173/',
++        ),
+     };
+   }
+ }
+diff --git a/lib/page/city_service/widget/pinned_service_widget_controller.dart b/lib/page/city_service/widget/pinned_service_widget_controller.dart
+index 5593ac9..d7a27ed 100644
+--- a/lib/page/city_service/widget/pinned_service_widget_controller.dart
++++ b/lib/page/city_service/widget/pinned_service_widget_controller.dart
+@@ -4,6 +4,7 @@ import 'package:town_pass/page/city_service/model/my_service_model.dart';
+ class PinnedServiceWidgetController extends GetxController {
+   final RxList<MyServiceItemId> _pinnedList = RxList(
+     [
++      MyServiceItemId.aidHelper,
+       MyServiceItemId.locationSearch,
+       MyServiceItemId.districtOffice,
+       MyServiceItemId.dashboard,
+diff --git a/android/app/src/main/res/xml/network_security_config.xml b/android/app/src/main/res/xml/network_security_config.xml
+new file mode 100644
+index 0000000..3c5e95e
+--- /dev/null
++++ b/android/app/src/main/res/xml/network_security_config.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- 開發與 Demo 用：只允許 localhost（adb reverse）走 http 明文連線，其餘網域維持只能 https。 -->
++<network-security-config>
++    <domain-config cleartextTrafficPermitted="true">
++        <domain includeSubdomains="false">localhost</domain>
++        <domain includeSubdomains="false">127.0.0.1</domain>
++    </domain-config>
++</network-security-config>
