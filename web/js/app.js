@@ -1,5 +1,5 @@
 import {
-  parseHours, openStatus, pickupStatus, loanStage, reminderFor, defaultDueDate,
+  parseHours, openStatus, pickupStatus, loanStage, reminderFor, defaultDueDate, REMINDER_DAYS,
   addMonths, addDays, diffDays, startOfDay, intervalsOnDate, WEEKDAY_NAMES,
 } from './rules.js';
 import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS, AGREEMENTS } from './data.js';
@@ -123,6 +123,7 @@ const ICON = {
   phone: svg('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'),
   nav: svg('<polygon points="3 11 22 2 13 21 11 13 3 11"/>'),
   pin: svg('<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>'),
+  stairs: svg('<path d="M3 20h5v-5h5v-5h5V5h3"/>'),
   bell: svg('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
 };
 
@@ -223,6 +224,11 @@ fetch('/api/stock')
     if (!busyForm()) render();
   })
   .catch(() => {});
+// 官網大類編號 → 圖片（庫存還沒載入時也能顯示）
+const ITEM_IMG = {
+  輪椅: 1, 助行器: 2, 拐杖: 3, 便盆椅: 4, 輪椅座墊: 5, 氣墊床: 6, 洗澡椅: 7, 助步車: 8,
+  居家用照顧床: 9, 兒童類輔具: 10, 移位輔具: 12, 矯具: 20, 其他: 20, 其他輔具: 20,
+};
 const stockCat = (name) => stock?.categories.find((c) => c.name === name);
 const stockModel = (id) => stock?.categories.flatMap((c) => c.models.map((m) => ({ ...m, cat: c.name }))).find((m) => m.id === Number(id));
 
@@ -251,7 +257,7 @@ function checkWatches() {
     const m = stockModel(w.modelId);
     const has = !!m && m.remaining > 0;
     if (has && !w.notified) {
-      bridge.notify('輔具到貨了', `${w.item}・${w.name} 現在有 ${m.remaining} 件，可以預約`, (t, c) => toast(`${t}｜${c}`, 6000));
+      bridge.notify(`${w.item}：候補輔具已到貨`, `${w.name} 目前剩餘 ${m.remaining} 件，請儘速預約。`, (t, c) => toast(`${t}｜${c}`, 6000));
       w.notified = true; changed = true;
     } else if (!has && w.notified) { w.notified = false; changed = true; }
   }
@@ -410,7 +416,11 @@ function borrow(_m, q) {
       const href = it === '爬梯機' ? '#/borrow?step=stair' : `#/borrow?step=plan&item=${encodeURIComponent(it)}`;
       const c = stockCat(it);
       const badge = c ? (c.remaining > 0 ? `<small class="tone-ok">剩 ${c.remaining}</small>` : '<small class="tone-warn">排隊中</small>') : '';
-      return `<a class="item ${rec.has(it) ? 'rec' : ''}" href="${href}"><span>${rec.has(it) ? '👍 ' : ''}${esc(it === '其他輔具' ? '其他' : it)}</span>${badge}</a>`;
+      // 圖片：官網各大類的代表圖（web/img/items/{類別編號}.jpg，從官網下載縮小）；爬梯機沒有，用線條圖示
+      const imgId = c?.id ?? ITEM_IMG[it];
+      const thumb = imgId ? `<img src="img/items/${imgId}.jpg" alt="" loading="lazy" onerror="this.remove()">` : ICON.stairs;
+      return `<a class="item has-img ${rec.has(it) ? 'rec' : ''}" href="${href}">${thumb ? `<span class="thumb">${thumb}</span>` : ''}
+        <span class="name">${rec.has(it) ? '👍 ' : ''}${esc(it === '其他輔具' ? '其他' : it)}</span>${badge}</a>`;
     };
     const recItems = all.filter((it) => rec.has(it));
     const others = all.filter((it) => !rec.has(it));
@@ -741,6 +751,7 @@ function sources() {
       <li><strong>中心名稱、開放時間、地址、電話</strong><br>臺北市政府社會局「臺北市二手輔具資源提供單位」，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="${LINKS.dataset}">data.gov.tw/dataset/135817</button></li>
       <li><strong>借用規則、入口提示、可借項目</strong><br>臺北市輔具資源整合資訊網「二手輔具借用須知」。<br><button class="linkish" data-act="link" data-url="${LINKS.reserve}">tpap.taipei/app37/rentView/intaipei</button></li>
       <li><strong>即時庫存、款式、排隊人數</strong><br>臺北市輔具資源整合資訊網「二手輔具借用」頁面，每 10 分鐘最多更新一次（經主辦單位同意爬取）。<br><button class="linkish" data-act="link" data-url="https://tpap.taipei/app37/rentView/additem">tpap.taipei/app37/rentView/additem</button></li>
+      <li><strong>輔具類別圖片</strong><br>臺北市輔具資源整合資訊網「二手輔具借用」各大類代表圖，縮小後存於本機。</li>
       <li><strong>國定假日</strong><br>行政院人事行政總處「中華民國政府行政機關辦公日曆表」115、116 年，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="https://data.gov.tw/dataset/14718">data.gov.tw/dataset/14718</button></li>
       <li><strong>座標</strong><br>OpenStreetMap Nominatim 依地址查詢，© OpenStreetMap contributors（ODbL），用來算距離。導航用中心名稱搜尋。</li>
     </ul>
@@ -762,12 +773,21 @@ function demo() {
       <div class="btn-row"><button class="btn primary" type="submit">套用</button>
         <button class="btn" type="button" data-act="shift" data-days="1">+1 天</button>
         <button class="btn" type="button" data-act="shift" data-days="7">+7 天</button></div>
-      <button class="btn ghost" type="button" data-act="realtime">回到真實時間</button>
+      <button class="btn ghost" type="button" data-act="realtime">結束示範（回到真實時間和自己的資料）</button>
     </form>
     <div class="card"><h3>示範情境</h3>
       <p class="small">時間設為 11/7（六）16:30，建立 3 筆紀錄：剛預約的輪椅、快到期的照顧床、逾期歸還的氣墊床。</p>
       <div class="btn-row"><button class="btn primary" data-act="seed">載入示範情境</button>
-      <button class="btn ghost" data-act="wipe">清除所有資料</button></div></div>`,
+      <button class="btn ghost" data-act="wipe">清除所有資料</button></div></div>
+    <div class="card"><h3>通知示範</h3>
+      <p class="small">按一下會載入示範情境、把時間調到對的時間點，回到首頁時跳出那一則台北通通知。</p>
+      <div class="demo-notify">
+        <button class="btn" data-act="demoNotify" data-kind="pickup">取件期限快到（輪椅，剩 30 分鐘）</button>
+        <button class="btn" data-act="demoNotify" data-kind="due">明日到期（照顧床）</button>
+        <button class="btn" data-act="demoNotify" data-kind="today">今日到期（照顧床）</button>
+        <button class="btn" data-act="demoNotify" data-kind="overdue">已逾期（照顧床）</button>
+        <button class="btn" data-act="demoNotify" data-kind="restock">候補的輔具到貨了</button>
+      </div></div>`,
     mount() {
       document.getElementById('demo-form').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -781,9 +801,12 @@ function demo() {
 }
 
 function seedDemo() {
+  // 第一次載入示範時，先把自己的紀錄備份起來，「結束示範」時還原
+  if (!state.backup) state.backup = { loans: state.loans, watches: state.watches || [] };
   const t = new Date(2026, 10, 7, 16, 30);
   state.demoOffset = t.getTime() - Date.now();
   const iso = (d) => d.toISOString();
+  state.watches = [];
   state.loans = [
     { id: newId(), item: '輪椅', centerId: 'heyi', reservedAt: iso(new Date(2026, 10, 7, 16, 25)), renewed: false, notified: [], checks: { pickup: [], return: [] } },
     { id: newId(), item: '居家用照顧床', centerId: 'south', reservedAt: iso(new Date(2026, 7, 11, 10)), pickedUpAt: iso(new Date(2026, 7, 12)), dueDate: iso(new Date(2026, 10, 12)), renewed: false, notified: [], checks: { pickup: [0, 1, 2, 3, 4], return: [] } },
@@ -942,8 +965,28 @@ const actions = {
     replaceTo('#/');
   },
   shift(el) { state.demoOffset = (state.demoOffset || 0) + Number(el.dataset.days) * 86400000; save(); render(); },
-  realtime() { state.demoOffset = 0; save(); toast('已回到真實時間'); render(); },
+  realtime() {
+    state.demoOffset = 0;
+    if (state.backup) { state.loans = state.backup.loans; state.watches = state.backup.watches; delete state.backup; }
+    save(); toast('已結束示範，回到你的資料'); replaceTo('#/');
+  },
   seed() { seedDemo(); replaceTo('#/'); },
+  // Demo 用：調到某個時間點，只讓指定的那一則通知跳出來
+  demoNotify(el) {
+    const kind = el.dataset.kind;
+    seedDemo();
+    const at = { pickup: [10, 16, 30], due: [11, 10, 0], today: [12, 10, 0], overdue: [14, 10, 0], restock: [7, 16, 30] }[kind];
+    state.demoOffset = new Date(2026, 10, ...at).getTime() - Date.now();
+    const all = ['pickup-impossible', 'pickup-expired', 'pickup-urgent', 'overdue', ...REMINDER_DAYS.map((d) => `due-${d}`)];
+    const target = kind === 'pickup' ? '輪椅' : kind === 'restock' ? null : '居家用照顧床';
+    for (const l of state.loans) l.notified = l.item === target ? [] : [...all];
+    if (kind === 'restock') {
+      const m = stock?.categories.flatMap((c) => c.models.map((x) => ({ ...x, cat: c.name }))).find((x) => x.remaining > 0);
+      if (!m) { toast('庫存還沒載入，請稍等再按'); return; }
+      state.watches = [{ modelId: m.id, item: m.cat, name: m.name, at: now().toISOString(), official: true, centers: Object.keys(m.centers || {}), notified: false }];
+    }
+    save(); replaceTo('#/');
+  },
   async wipe() {
     if (!await confirmDialog('確定要清除所有資料嗎？', '所有借用紀錄都會刪除，無法復原', '清除')) return;
     state = { loans: [], demoOffset: 0 }; save(); toast('已清除'); render();
