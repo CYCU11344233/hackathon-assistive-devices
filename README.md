@@ -58,6 +58,7 @@ node --test           # 規則引擎測試（12 項）
 ## 資料來源
 - [臺北市二手輔具資源提供單位](https://data.gov.tw/dataset/135817)（臺北市政府社會局，政府資料開放授權條款第 1 版）
 - [二手輔具借用須知](https://tpap.taipei/app37/rentView/intaipei)
+- [中華民國政府行政機關辦公日曆表](https://data.gov.tw/dataset/14718)（行政院人事行政總處，政府資料開放授權條款第 1 版）：國定假日休館。原始 CSV 在 `data/`，`web/js/holidays.js` 由它產生
 - 座標：OpenStreetMap Nominatim（© OpenStreetMap contributors，ODbL）
 
 ## 授權

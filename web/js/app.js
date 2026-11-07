@@ -494,7 +494,8 @@ function sources() {
     html: `<ul class="sources">
       <li><strong>中心名稱、開放時間、地址、電話</strong><br>臺北市政府社會局「臺北市二手輔具資源提供單位」，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="${LINKS.dataset}">data.gov.tw/dataset/135817</button></li>
       <li><strong>借用規則、入口提示、可借項目</strong><br>臺北市輔具資源整合資訊網「二手輔具借用須知」。<br><button class="linkish" data-act="link" data-url="${LINKS.reserve}">tpap.taipei/app37/rentView/intaipei</button></li>
-      <li><strong>座標</strong><br>OpenStreetMap Nominatim 依地址查詢，© OpenStreetMap contributors（ODbL）。合宜輔具中心為花博公園園區的約略位置。</li>
+      <li><strong>國定假日</strong><br>行政院人事行政總處「中華民國政府行政機關辦公日曆表」115、116 年，政府資料開放授權條款第 1 版。<br><button class="linkish" data-act="link" data-url="https://data.gov.tw/dataset/14718">data.gov.tw/dataset/14718</button></li>
+      <li><strong>座標</strong><br>OpenStreetMap Nominatim 依地址查詢，© OpenStreetMap contributors（ODbL），用來算距離。導航用中心名稱搜尋。</li>
     </ul>
     <ul class="plain">
       <li>預約在官網完成，這裡不代替預約。</li>
