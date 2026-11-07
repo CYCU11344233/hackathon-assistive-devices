@@ -146,7 +146,8 @@ function sortedCenters() {
     return { c, p, dist };
   }).sort((a, b) => {
     const rank = { ok: 0, urgent: 1, impossible: 2, expired: 3 };
-    return (rank[a.p.status] - rank[b.p.status]) || ((a.dist ?? 0) - (b.dist ?? 0));
+    if (a.dist != null && b.dist != null) return a.dist - b.dist;
+    return rank[a.p.status] - rank[b.p.status];
   });
 }
 
@@ -275,6 +276,23 @@ function confirmDialog(title, text, okLabel, tone = 'danger') {
   });
 }
 
+// 畫面中間跳出的小表單（取貨、歸還用），回傳 form 元素或 null
+function formDialog(title, fields, okLabel, onMount) {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'confirm-dialog';
+    d.innerHTML = `<h3>${esc(title)}</h3><form method="dialog" class="form">${fields}
+      <div class="btn-row"><button class="btn" value="no">返回</button><button class="btn primary" value="yes">${esc(okLabel)}</button></div></form>`;
+    const form = d.querySelector('form');
+    const done = (ok) => { d.close(); d.remove(); resolve(ok ? form : null); };
+    form.addEventListener('submit', (e) => { e.preventDefault(); done(e.submitter?.value === 'yes'); });
+    d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+    document.body.append(d);
+    onMount?.(form);
+    d.showModal();
+  });
+}
+
 // 在台北通裡填資料預約（web/js/reserve.js）
 function reserve(_m, q) {
   const item = q.get('item') || '';
@@ -365,7 +383,7 @@ function borrow(_m, q) {
       html: `<h2>請閱讀並勾選以下三點</h2>
       <form id="agree-form" class="form">
         <ul class="checklist agree">${AGREEMENTS.map((t, i) => `<li><label><input type="checkbox" name="a${i}"> <span>${esc(t)}</span></label></li>`).join('')}</ul>
-        <p class="small">法定傳染病說明請見衛生福利部疾病管制署公告</p>
+        <p class="small">法定傳染病說明請見<button type="button" class="linkish" data-act="link" data-url="https://www.cdc.gov.tw/Disease/Index">衛生福利部疾病管制署「傳染病介紹」</button></p>
         <div class="btn-row"><a class="btn" href="#/">我不同意</a><button class="btn primary" type="submit" disabled>我同意</button></div>
       </form>`,
       mount() {
@@ -597,18 +615,15 @@ function loanDetail(m) {
       ? `<div class="card"><h3>可取貨時段</h3><ul class="plain">${p.intervals.map((iv) => `<li>${dayWord(iv.start)} ${fmtTime(iv.start)}–${fmtTime(iv.end)}</li>`).join('')}</ul>
          <p class="small">沒去拿會自動取消</p></div>`
       : '';
-    if (p.status === 'impossible' || p.status === 'expired') {
-      body += `<div class="card"><h3>${p.status === 'impossible' ? '先打電話確認' : '重新預約'}</h3>
-        <div class="btn-row"><button class="btn primary" data-act="call" data-phone="${c.phone}">${ICON.phone} 撥號</button>
-        ${p.status === 'expired' ? '<a class="btn" href="#/borrow">重新預約</a>' : ''}</div></div>`;
-    }
-    body += `<div class="card"><h3>取貨地點：${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>
+    const warn = p.status === 'impossible' ? '取件期限內本中心無開館時段，請先致電確認取件方式。'
+      : p.status === 'expired' ? '已逾取件期限，預約可能已取消，請致電確認或重新預約。' : '';
+    body += `<div class="card"><h3>取貨地點：${esc(shortName(c))}</h3>
+        ${warn ? `<div class="alert danger">${warn}</div>` : ''}
+        <p class="line">${openLine(c)}</p>${centerActions(c)}
+        ${p.status === 'expired' ? '<div class="btn-row"><a class="btn" href="#/borrow">重新預約</a></div>' : ''}
+        ${centerInfo(c)}</div>
       <div class="card"><h3>出門前檢查</h3>${checklist(loan, 'pickup')}</div>
-      <details class="confirm"><summary class="btn primary big">✅ 已完成借用（已取貨）</summary>
-        <form class="card form" id="pickup-form">
-          <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}"></label>
-          <label>歸還期限（看借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}"></label>
-          <button class="btn primary" type="submit">確認已完成借用</button></form></details>`;
+      <button class="btn primary big" data-act="pickedUp" data-loan="${loan.id}">✅ 已完成借用（已取貨）</button>`;
   } else if (s.stage === 'borrowed') {
     body += `<div class="days tone-${st.tone}"><strong>${s.daysLeft < 0 ? `逾期 ${-s.daysLeft}` : s.daysLeft}</strong><span>${s.daysLeft < 0 ? '天' : '天後到期'}</span></div>`;
     if (s.level === 'overdue') {
@@ -622,10 +637,7 @@ function loanDetail(m) {
           <label>新的歸還期限（依中心核定）<input type="date" name="dueDate" value="${toDateInput(addMonths(new Date(loan.dueDate), 3))}"></label>
           <button class="btn" type="submit">已辦妥續借</button></form>`
       : '<div class="alert info">已續借 1 次，請於期限內歸還。</div>';
-    body += `<details class="confirm"><summary class="btn primary big">✅ 已歸還</summary>
-        <form class="card form" id="return-form">
-          <label>歸還日<input type="date" name="returnedAt" value="${toDateInput(now())}"></label>
-          <button class="btn primary" type="submit">確認已歸還</button></form></details>
+    body += `<button class="btn primary big" data-act="returned" data-loan="${loan.id}">✅ 已歸還</button>
       <div class="card"><h3>${esc(shortName(c))}</h3><p class="line">${openLine(c)}</p>${centerActions(c)}${centerInfo(c)}</div>`;
   } else {
     body += s.late
@@ -638,28 +650,13 @@ function loanDetail(m) {
       <p class="status tone-${st.tone}">${st.text}</p></section>
       ${timeline(loan, st)}
       ${body}
-      ${s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">取消後會讓給下一位，紀錄會保留在「過去的紀錄」</p>
+      ${s.stage === 'reserved' ? `<div class="card"><h3>不借了？</h3><p class="small">如不再需要，請取消預約，以便輔具提供予其他民眾借用。取消紀錄將保留於「過去的紀錄」。</p>
         <div class="btn-row"><button class="btn danger-outline" data-act="cancelLoan" data-loan="${loan.id}">取消預約</button></div></div>` : ''}
       <a class="btn primary big" href="#/">回首頁</a>
       ${loan.viaApp ? '' : `<details class="more danger-zone"><summary>其他</summary>
         <p class="small">這筆是手動記的。記錯了可以刪除，不會影響官網或中心的預約。</p>
         <button class="btn ghost" data-act="delete" data-loan="${loan.id}">刪除這筆紀錄</button></details>`}`,
     mount() {
-      const pf = document.getElementById('pickup-form');
-      if (pf) {
-        let touched = false;
-        pf.dueDate.addEventListener('input', () => { touched = true; });
-        pf.pickedUpAt.addEventListener('input', () => {
-          if (!touched && pf.pickedUpAt.value) pf.dueDate.value = toDateInput(defaultDueDate(fromDateInput(pf.pickedUpAt.value)));
-        });
-        pf.addEventListener('submit', (e) => {
-          e.preventDefault();
-          loan.pickedUpAt = fromDateInput(pf.pickedUpAt.value).toISOString();
-          loan.dueDate = fromDateInput(pf.dueDate.value).toISOString();
-          loan.notified = [];
-          save(); render();
-        });
-      }
       const rf = document.getElementById('renew-form');
       if (rf) rf.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -667,12 +664,6 @@ function loanDetail(m) {
         loan.renewed = true;
         loan.notified = [];
         save(); toast('已更新歸還期限'); render();
-      });
-      const tf = document.getElementById('return-form');
-      if (tf) tf.addEventListener('submit', (e) => {
-        e.preventDefault();
-        loan.returnedAt = fromDateInput(tf.returnedAt.value).toISOString();
-        save(); render();
       });
     },
   };
@@ -877,6 +868,31 @@ const actions = {
     if (el.checked && at < 0) arr.push(i);
     if (!el.checked && at >= 0) arr.splice(at, 1);
     save();
+  },
+  async pickedUp(el) {
+    const loan = state.loans.find((l) => l.id === el.dataset.loan);
+    const f = await formDialog('已完成借用（已取貨）', `
+      <label>取貨日<input type="date" name="pickedUpAt" value="${toDateInput(now())}" required></label>
+      <label>歸還期限（依借用單）<input type="date" name="dueDate" value="${toDateInput(defaultDueDate(now()))}" required></label>`, '確認', (form) => {
+      // 改取貨日時，歸還期限跟著算（除非使用者自己改過）
+      let touched = false;
+      form.dueDate.addEventListener('input', () => { touched = true; });
+      form.pickedUpAt.addEventListener('input', () => {
+        if (!touched && form.pickedUpAt.value) form.dueDate.value = toDateInput(defaultDueDate(fromDateInput(form.pickedUpAt.value)));
+      });
+    });
+    if (!f || !f.pickedUpAt.value || !f.dueDate.value) return;
+    loan.pickedUpAt = fromDateInput(f.pickedUpAt.value).toISOString();
+    loan.dueDate = fromDateInput(f.dueDate.value).toISOString();
+    loan.notified = [];
+    save(); toast('已記錄取貨，到期前會提醒你'); render();
+  },
+  async returned(el) {
+    const loan = state.loans.find((l) => l.id === el.dataset.loan);
+    const f = await formDialog('已歸還', `<label>歸還日<input type="date" name="returnedAt" value="${toDateInput(now())}" required></label>`, '確認');
+    if (!f || !f.returnedAt.value) return;
+    loan.returnedAt = fromDateInput(f.returnedAt.value).toISOString();
+    save(); render();
   },
   // 取消預約：不刪紀錄，標成「已取消」收進過去的紀錄。真的送到官網的，會在官網一起取消。
   async cancelLoan(el) {

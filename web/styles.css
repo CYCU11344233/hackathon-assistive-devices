@@ -214,9 +214,9 @@ h3 { font-size: 1.1rem; }
 .checklist label { padding: 12px 0; }
 .more summary, .needs > summary { padding: 10px 0; }
 /* 中心的地址與時間 */
-.info { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 8px 0 0; font-size: 1rem; }
-.info dt { color: var(--muted); white-space: nowrap; }
-.info dd { margin: 0; }
+dl.info { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 8px 0 0; font-size: 1rem; }
+dl.info dt { color: var(--muted); white-space: nowrap; }
+dl.info dd { margin: 0; }
 /* 回來時問「預約成功了嗎」 */
 .pending { border: 2px solid var(--primary); margin-top: 12px; }
 .pending .btn.ghost { width: 100%; margin-top: 8px; }
