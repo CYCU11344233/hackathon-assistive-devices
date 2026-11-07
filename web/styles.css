@@ -234,3 +234,11 @@ h3 { font-size: 1.1rem; }
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 .checklist.agree span { line-height: 1.5; }
 .btn[disabled] { opacity: .45; }
+/* 預約表單 */
+.summary h3 { font-size: 1.15rem; margin: 2px 0 4px; }
+.radios { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+fieldset { border: 1px solid var(--line); border-radius: 12px; margin: 12px 0; padding: 8px 14px; }
+fieldset legend { font-weight: 600; padding: 0 6px; }
+#reserve-form h2 { margin-top: 28px; }
+#reserve-form input:not([type=checkbox]):not([type=radio]) { width: 100%; }
+#errors ul { margin: 6px 0 0; padding-left: 1.2em; }

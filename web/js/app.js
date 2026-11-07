@@ -5,6 +5,7 @@ import {
 import { CENTERS, ITEMS, LINKS, CHECKLISTS, NEEDS, AGREEMENTS } from './data.js';
 import * as bridge from './bridge.js';
 import { HOLIDAYS } from './holidays.js';
+import { reservePage } from './reserve.js';
 
 // 開放時間加上國定假日休館（人事行政總處辦公日曆表）
 const HOURS = Object.fromEntries(CENTERS.map((c) => [c.id, { ...parseHours(c.hoursText), closed: HOLIDAYS }]));
@@ -228,6 +229,29 @@ function confirmDialog(title, text, okLabel) {
   });
 }
 
+// 在台北通裡填資料預約（web/js/reserve.js）
+function reserve(_m, q) {
+  const item = q.get('item') || '';
+  const center = q.get('center');
+  const model = stock?.categories.flatMap((c) => c.models).find((m) => m.id === Number(q.get('model')));
+  if (!model || !CENTER_SHORT[center]) {
+    return { title: '填寫預約資料', html: `<p>${stock ? '找不到這個款式，可能已經更新了。' : '庫存載入中…'}</p><a class="btn" href="#/borrow?step=item">回去選輔具</a>` };
+  }
+  return reservePage({
+    esc, toast, confirmDialog, replaceTo, render, item, center, model,
+    centerName: shortName(centerById(center)),
+    addLoan({ item: name, model: modelName, centerId, official }) {
+      const loan = {
+        id: newId(), item: name, model: modelName, centerId, official,
+        reservedAt: now().toISOString(), renewed: false, notified: [], checks: { pickup: [], return: [] },
+      };
+      state.loans.push(loan);
+      save();
+      return loan.id;
+    },
+  });
+}
+
 // ---------- 頁面 ----------
 function home() {
   const loans = state.loans.map((l) => ({ l, st: loanStatus(l) }));
@@ -330,7 +354,7 @@ function borrow(_m, q) {
       ${m.remaining > 0 && m.centers ? `<p class="centers-stock">${Object.entries(m.centers).map(([k, n]) => `<span class="${n > 0 ? 'has' : ''}">${CENTER_SHORT[k]} ${n}</span>`).join('')}</p>` : ''}
       ${m.desc ? `<details class="more"><summary>說明</summary><p class="small">${esc(m.desc).replace(/\n/g, '<br>')}</p></details>` : ''}
       <div class="btn-row">${m.remaining > 0
-        ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<button class="btn primary" data-act="reserve" data-center="${k}" data-model="${m.id}">在${CENTER_SHORT[k]}預約</button>`).join('')
+        ? Object.entries(m.centers || {}).filter(([, n]) => n > 0).map(([k]) => `<a class="btn primary" href="#/reserve?center=${k}&model=${m.id}&item=${encodeURIComponent(item)}">在${CENTER_SHORT[k]}預約</a>`).join('')
           || `<button class="btn primary" data-act="link" data-url="${OFFICIAL}/chooseCenterCategory/${m.id}">去官網預約這款</button>`
         : `<button class="btn" data-act="link" data-url="${OFFICIAL}/waitingRent/${m.id}">去官網登記到貨通知</button>`}</div>
     </article>`;
@@ -521,7 +545,7 @@ function loanDetail(m) {
   }
   return {
     title: loan.item,
-    html: `<section class="detail-head"><h2>${esc(loan.item)}</h2><p class="small">${esc(shortName(c))}</p>
+    html: `<section class="detail-head"><h2>${esc(loan.item)}</h2><p class="small">${loan.model ? `${esc(loan.model)}・` : ''}${esc(shortName(c))}${loan.official ? '・已在官網預約' : ''}</p>
       <p class="status tone-${st.tone}">${st.text}</p></section>
       ${timeline(loan, st)}
       ${body}
@@ -655,9 +679,8 @@ const actions = {
   call: (el) => bridge.phoneCall(el.dataset.phone),
   map: (el) => { const c = centerById(el.dataset.center); bridge.launchMap(c.lat, c.lng, c.name); },
   link: (el) => bridge.openLink(el.dataset.url),
-  // 在台北通選好中心後，直接把這款放進官網購物車（官網保留 1 小時），接著官網的「下一步」就是填資料，
-  // 填資料頁有「帶入台北通基本資料」。個資只在官網填寫，不經過我們的伺服器。
-  async reserve(el) {
+  // 備用：不在台北通裡填，直接把這款放進官網購物車（官網保留 1 小時），在官網填資料
+  async officialReserve(el) {
     const c = centerById(el.dataset.center);
     if (!await confirmDialog(`在${shortName(c)}預約？`, '接下來會到官網填資料並送出，官網會幫你保留 1 小時', '去填資料')) return;
     bridge.openLink(`${OFFICIAL}/returnList?centerId=${OFFICIAL_CENTER[el.dataset.center]}&typeId=${el.dataset.model}`);
@@ -722,6 +745,7 @@ const routes = [
   [/^#\/loan\/([\w-]+)$/, loanDetail],
   [/^#\/sources$/, sources],
   [/^#\/demo$/, demo],
+  [/^#\/reserve$/, reserve],
 ];
 
 let lastHash = null;

@@ -54,6 +54,13 @@ function request(name, data, timeoutMs = 10000) {
   });
 }
 
+/** 台北通帳號資料（姓名、身分證、電話、生日、地址）；不在 App 內或拿不到時回傳 null。 */
+export async function getUserInfo() {
+  if (!isInApp()) return null;
+  const d = await request('userinfo');
+  return d && typeof d === 'object' && !Array.isArray(d) ? d : null;
+}
+
 /** 取得目前位置；失敗回傳 null。 */
 export async function getLocation() {
   if (isInApp()) {
