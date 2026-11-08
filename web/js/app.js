@@ -350,7 +350,7 @@ function home() {
   const returned = loans.filter((x) => done(x.l));
   const suspended = returned.find((x) => x.st.s.suspendedNow);
   return {
-    title: '二手輔具借用小幫手',
+    title: '輔具接力站',
     html: `
     ${suspended ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(suspended.st.s.suspendedUntil)}</strong> 前不能再借。</div>` : ''}
     <div class="big-actions">
@@ -1062,7 +1062,7 @@ function render() {
   const demoChip = state.demoOffset ? '<a class="demo-chip" href="#/demo">示範時間</a>' : '';
   const header = bridge.isInApp()
     ? (demoChip ? `<div class="demo-bar">${demoChip}</div>` : '')
-    : `<header class="topbar"><a class="home-link" href="#/">輔具借用小幫手</a><span class="topbar-title">${esc(view.title)}</span>${demoChip}</header>`;
+    : `<header class="topbar"><a class="home-link" href="#/">輔具接力站</a><span class="topbar-title">${esc(view.title)}</span>${demoChip}</header>`;
   document.getElementById('app').innerHTML = `${header}<main>${view.html}</main>`;
   if (hash !== lastHash) window.scrollTo(0, 0);
   lastHash = hash;

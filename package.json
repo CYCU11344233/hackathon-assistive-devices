@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "台北通微服務：二手輔具借用小幫手",
+  "description": "台北通微服務：輔具接力站",
   "scripts": {
     "start": "node serve.mjs",
     "test": "node --test"

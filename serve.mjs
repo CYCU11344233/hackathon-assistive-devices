@@ -162,7 +162,7 @@ createServer(async (req, res) => {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
   }
 }).listen(port, '0.0.0.0', () => {
-  console.log(`輔具借用小幫手：http://localhost:${port}`);
+  console.log(`輔具接力站：http://localhost:${port}`);
   console.log(LIVE ? '⚠ 真的送出預約模式（LIVE_RESERVE=1）' : '預約為演練模式：不會真的送到官網');
   // 啟動時先抓一次，第一個使用者打開時就有資料
   refresh().catch((err) => console.warn('啟動時爬取失敗：', err.message));
