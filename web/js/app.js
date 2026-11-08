@@ -215,17 +215,26 @@ let stock = null;
 let stockLoading = true; // 第一次載入中；失敗時改成 false，畫面退回沒有庫存的版本
 // 這些頁面有使用者正在填的表單或查詢結果，自動重畫會清掉
 const busyForm = () => ['loan-form', 'demo-form', 'reserve-form', 'q-form'].some((id) => document.getElementById(id));
-fetch('/api/stock')
-  .then((r) => (r.ok ? r.json() : null))
-  .then((d) => {
-    if (d?.categories) stock = d;
-  })
-  .catch(() => {})
-  .finally(() => {
-    stockLoading = false;
-    // 正在填表單時不要重畫（busyForm），避免清掉使用者輸入
-    if (!busyForm()) render();
-  });
+// 打開 app 就請伺服器重爬：先拿到手上最新的資料，伺服器還在爬（refreshing）就再等爬完、更新畫面
+function loadStock(wait = false) {
+  return fetch(`/api/stock${wait ? '?wait=1' : ''}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (d?.categories) stock = d;
+      return d;
+    })
+    .catch(() => null)
+    .finally(() => {
+      stockLoading = false;
+      // 正在填表單時不要重畫（busyForm），避免清掉使用者輸入
+      if (!busyForm()) render();
+    });
+}
+loadStock().then((d) => { if (d?.refreshing) loadStock(true); });
+// 從背景切回來（重新看到畫面）也重抓
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadStock().then((d) => { if (d?.refreshing) loadStock(true); });
+});
 // 官網大類編號 → 圖片（庫存還沒載入時也能顯示）
 const ITEM_IMG = {
   輪椅: 1, 助行器: 2, 拐杖: 3, 便盆椅: 4, 輪椅座墊: 5, 氣墊床: 6, 洗澡椅: 7, 助步車: 8,
@@ -269,7 +278,7 @@ function stockNote() {
   if (!stock) return '';
   const t = new Date(stock.fetchedAt);
   // 一行就好：來源寫在「資料來源」頁
-  return `<p class="small stock-note">${stock.stale ? `官網連不上，顯示 ${fmtTime(t)} 的庫存` : `庫存 ${fmtTime(t)} 更新`}</p>`;
+  return `<p class="small stock-note">${stock.stale ? `官網連不上，顯示 ${fmtTime(t)} 的庫存` : `庫存 ${fmtTime(t)} 更新`}${stock.refreshing ? '・正在更新…' : ''}</p>`;
 }
 
 // 畫面中間跳出的確認視窗（用 <dialog>），回傳 Promise<boolean>
@@ -306,6 +315,7 @@ function formDialog(title, fields, okLabel, onMount) {
 
 // 在台北通裡填資料預約（web/js/reserve.js）
 function reserve(_m, q) {
+  if (suspension()) return suspendedPage(suspension());
   const item = q.get('item') || '';
   const center = q.get('center');
   const wait = q.get('wait') === '1';
@@ -342,19 +352,36 @@ function reserve(_m, q) {
   });
 }
 
+// ---------- 停權 ----------
+// 逾期歸還停權中：回傳停權到哪天（多筆取最晚），沒有就 null
+function suspension() {
+  const until = state.loans.filter((l) => l.returnedAt && !l.cancelledAt)
+    .map((l) => loanStatus(l).s).filter((s) => s.suspendedNow).map((s) => +s.suspendedUntil);
+  return until.length ? new Date(Math.max(...until)) : null;
+}
+// 停權期間擋下預約、候補、記下預約
+function suspendedPage(until) {
+  return {
+    title: '暫停借用',
+    html: `<div class="alert danger">逾期歸還，停權到 <strong>${fmtDate(until)}</strong>（還有 ${diffDays(now(), until)} 天）。<br>這段期間不能預約或登記候補。</div>
+    <p class="small">依臺北市二手輔具借用規定，逾期歸還須停權至歸還後滿 3 個月。</p>
+    <div class="btn-row"><a class="btn primary big" href="#/">回首頁</a></div>`,
+  };
+}
+
 // ---------- 頁面 ----------
 function home() {
   const loans = state.loans.map((l) => ({ l, st: loanStatus(l) }));
   const done = (l) => l.returnedAt || l.cancelledAt;
   const active = loans.filter((x) => !done(x.l)).sort((a, b) => TONE_RANK[a.st.tone] - TONE_RANK[b.st.tone]);
   const returned = loans.filter((x) => done(x.l));
-  const suspended = returned.find((x) => x.st.s.suspendedNow);
+  const until = suspension();
   return {
     title: '輔具接力站',
     html: `
-    ${suspended ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(suspended.st.s.suspendedUntil)}</strong> 前不能再借。</div>` : ''}
+    ${until ? `<div class="alert danger">逾期歸還，<strong>${fmtDate(until)}</strong> 前不能再借。</div>` : ''}
     <div class="big-actions">
-      <a class="big-btn" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具（免費）</strong></div></a>
+      <a class="big-btn ${until ? 'disabled' : ''}" href="#/borrow"><span>🦽</span><div><strong>我要借二手輔具（免費）</strong>${until ? `<small>停權中，${fmtDate(until)} 後才能借</small>` : ''}</div></a>
       <a class="big-btn" href="#/centers"><span>🏥</span><div><strong>輔具中心</strong></div></a>
     </div>
     ${active.length ? `<h2>我的借用</h2>${active.map(({ l, st }) => `
@@ -377,6 +404,7 @@ function home() {
 }
 
 function borrow(_m, q) {
+  if (suspension()) return suspendedPage(suspension());
   const step = q.get('step') || 'county';
   const item = q.get('item') || '';
   if (step === 'out') {
@@ -531,6 +559,7 @@ function centers() {
 }
 
 function newLoan(_m, q) {
+  if (suspension()) return suspendedPage(suspension());
   const item = q.get('item') || '';
   const isKnown = ITEMS.includes(item);
   const centerId = CENTERS.some((c) => c.id === q.get('center')) ? q.get('center') : CENTERS[0].id;

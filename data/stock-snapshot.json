@@ -1,6 +1,6 @@
 {
   "source": "臺北市輔具資源整合資訊網 https://tpap.taipei/app37/rentView/additem",
-  "fetchedAt": "2026-11-07T19:01:00.572Z",
+  "fetchedAt": "2026-11-08T07:58:56.748Z",
   "categories": [
     {
       "id": 1,
@@ -108,18 +108,18 @@
     {
       "id": 2,
       "name": "助行器",
-      "remaining": 6,
+      "remaining": 4,
       "models": [
         {
           "id": 30,
           "name": "無輪",
           "spec": "使用者身高150-175cm",
-          "remaining": 5,
+          "remaining": 3,
           "desc": "無輪助行器需雙手操作，操作需要走一步停一步，隨著移動、向前抬放助行器。適合下肢肌力及耐力不足，但雙手有力、站姿平衡良好，尚能短距離行走的使用者。",
           "waiting": 0,
           "centers": {
-            "heyi": 1,
-            "west": 3,
+            "heyi": 0,
+            "west": 2,
             "south": 1
           }
         },
@@ -149,25 +149,25 @@
           "spec": "使用者身高150-175cm",
           "remaining": 0,
           "desc": "二輪助行器需雙手操作，兩輪位在前方左右兩腳，操作僅需向前推行不須抬起。適合下肢肌力及耐力稍差，但雙手有力、站姿平衡良好，尚能短距離行走的使用者。",
-          "waiting": 8
+          "waiting": 9
         }
       ]
     },
     {
       "id": 3,
       "name": "拐杖",
-      "remaining": 29,
+      "remaining": 30,
       "models": [
         {
           "id": 39,
           "name": "單枴",
           "spec": "使用者身高175cm以下",
-          "remaining": 20,
+          "remaining": 21,
           "desc": "通常是單手使用，適合單純平衡感略差、走路怕跌倒的使用者。",
           "waiting": 0,
           "centers": {
             "heyi": 0,
-            "west": 18,
+            "west": 19,
             "south": 2
           }
         },
@@ -250,21 +250,8 @@
     {
       "id": 4,
       "name": "便盆椅",
-      "remaining": 3,
+      "remaining": 2,
       "models": [
-        {
-          "id": 54,
-          "name": "有輪",
-          "spec": "可收折",
-          "remaining": 1,
-          "desc": "四輪可收折便盆椅，不附帶便盆。",
-          "waiting": 0,
-          "centers": {
-            "heyi": 1,
-            "west": 0,
-            "south": 0
-          }
-        },
         {
           "id": 55,
           "name": "有輪",
@@ -277,6 +264,14 @@
             "west": 2,
             "south": 0
           }
+        },
+        {
+          "id": 54,
+          "name": "有輪",
+          "spec": "可收折",
+          "remaining": 0,
+          "desc": "四輪可收折便盆椅，不附帶便盆。",
+          "waiting": 2
         },
         {
           "id": 57,
@@ -355,7 +350,7 @@
           "spec": "",
           "remaining": 0,
           "desc": "簡易沐浴用椅，有靠背",
-          "waiting": 2
+          "waiting": 3
         },
         {
           "id": 148,
@@ -371,7 +366,7 @@
           "spec": "",
           "remaining": 0,
           "desc": "簡易沐浴用椅，有扶手及椅背體提供支撐協助，且可收折。",
-          "waiting": 4
+          "waiting": 5
         }
       ]
     },

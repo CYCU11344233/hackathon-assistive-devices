@@ -113,6 +113,7 @@ a { color: var(--primary); }
 .big-btn small { color: var(--muted); font-size: .9rem; }
 .big-btn:first-child { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
 .big-btn:first-child small { color: inherit; opacity: .85; }
+.big-btn.disabled, .big-btn.disabled:first-child { background: var(--surface); border-color: var(--line); color: var(--muted); }
 
 .choice { display: grid; gap: 10px; margin-top: 16px; }
 .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
