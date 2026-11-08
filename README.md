@@ -29,6 +29,9 @@ node --test           # 規則引擎測試（12 項）
 | `web/js/bridge.js` | 台北通 WebView 橋接；不在 App 內時改用瀏覽器原生功能 |
 | `web/js/app.js` | 畫面與路由（hash router），資料存在 localStorage |
 | `tests/rules.test.mjs` | 測試情境 |
+| `screenshots/` | 繳交用的服務畫面截圖（台北通 App 內實機畫面） |
+| `scripts/手機投影.bat` | Demo 時用 scrcpy 把手機畫面投到電腦（同時設定 `adb reverse tcp:5173`） |
+| `data/raw/` | 前期找題目時下載的臺北市開放資料（社福中心、關懷據點、Wi-Fi、派遣計程車、數位課程），App 沒有使用 |
 
 ## 台北通橋接（已對照官方原始碼）
 協定來自 `taipei-doit/TownPass` 的 `lib/util/web_message_handler/*.dart`：
@@ -58,7 +61,7 @@ node --test           # 規則引擎測試（12 項）
 ## 資料來源
 - [臺北市二手輔具資源提供單位](https://data.gov.tw/dataset/135817)（臺北市政府社會局，政府資料開放授權條款第 1 版）
 - [二手輔具借用須知](https://tpap.taipei/app37/rentView/intaipei)
-- [臺北市輔具資源整合資訊網 二手輔具借用](https://tpap.taipei/app37/rentView/additem)：即時庫存、款式、各中心數量、等待人數。由 `server/stock.mjs` 爬取（經主辦單位同意），`serve.mjs` 的 `/api/stock` 快取 10 分鐘；爬不到時用 `data/stock-snapshot.json` 快照
+- [臺北市輔具資源整合資訊網 二手輔具借用](https://tpap.taipei/app37/rentView/additem)：即時庫存、款式、各中心數量、等待人數。由 `server/stock.mjs` 爬取（經主辦單位同意），`serve.mjs` 的 `/api/stock` 在有人打開 App 時背景重爬（至少間隔 1 分鐘），沒人使用時每 10 分鐘爬一次；爬不到時用 `data/stock-snapshot.json` 快照
 - [中華民國政府行政機關辦公日曆表](https://data.gov.tw/dataset/14718)（行政院人事行政總處，政府資料開放授權條款第 1 版）：國定假日休館。原始 CSV 在 `data/`，`web/js/holidays.js` 由它產生
 - 座標：OpenStreetMap Nominatim（© OpenStreetMap contributors，ODbL）
 
